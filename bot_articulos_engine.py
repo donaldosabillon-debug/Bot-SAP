@@ -256,11 +256,12 @@ class BotArticulosEngine:
         time.sleep(0.04)
 
     def _press_enter(self):
-        """Presiona ENTER de forma robusta con Win32."""
+        """Presiona ENTER de forma robusta con Win32 y tiempo de retención para RDP."""
         sc = win32api.MapVirtualKey(win32con.VK_RETURN, 0)
         win32api.keybd_event(win32con.VK_RETURN, sc, 0, 0)
-        time.sleep(0.03)
+        time.sleep(0.08)
         win32api.keybd_event(win32con.VK_RETURN, sc, win32con.KEYEVENTF_KEYUP, 0)
+        time.sleep(0.04)
 
     def _press_ctrl_f(self):
         """Presiona Ctrl+F para entrar a Modo Buscar en SAP B1."""
@@ -421,10 +422,20 @@ class BotArticulosEngine:
         self._select_all_in_field()
         time.sleep(0.04)
 
-        # Pegar el código de artículo y buscar
+        # Pegar el código de artículo
         self._safe_paste(item_code)
-        time.sleep(0.12)
-        self._press_enter()
+        time.sleep(0.15)
+
+        # Ejecutar Búsqueda:
+        # En SAP B1, el botón inferior izquierdo dice 'Buscar' durante el modo búsqueda
+        # (en la misma coordenada exacta que 'Actualizar').
+        # Si está calibrado, hacemos clic directo en él para asegurar la búsqueda;
+        # si no estuviera calibrado, enviamos Intro como fallback.
+        if btn_actualizar:
+            self._safe_click(btn_actualizar)
+        else:
+            self._press_enter()
+
         time.sleep(self.config.get("delay_after_search", 1.0))
 
         self._check_pause()

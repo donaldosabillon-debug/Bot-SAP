@@ -455,7 +455,7 @@ class BotArticulosApp:
         # Fila 4: Guardar y Acciones Rápidas
         r4 = ttk.Frame(calib_card)
         r4.pack(fill=tk.X, pady=2)
-        btn_act = ttk.Button(r4, text="💾 7. Botón 'Actualizar' (inferior)", width=32, command=lambda: self.start_calibration("btn_actualizar"))
+        btn_act = ttk.Button(r4, text="💾 7. Botón 'Buscar / Actualizar'", width=32, command=lambda: self.start_calibration("btn_actualizar"))
         btn_act.pack(side=tk.LEFT, padx=(0, 6))
         ttk.Label(r4, textvariable=self.coord_btn_actualizar_var, style="CoordBadge.TLabel", width=18).pack(side=tk.LEFT, padx=(0, 20))
 
@@ -696,7 +696,7 @@ class BotArticulosApp:
             "min_qty": ("4. Campo 'Cantidad de Pedido Mínimo'", self.coord_min_var, "min_qty_coord"),
             "lead": ("5. Campo 'Tiempo Lead'", self.coord_lead_var, "lead_time_coord"),
             "tol": ("6. Campo 'Días de Tolerancia'", self.coord_tol_var, "tolerance_coord"),
-            "btn_actualizar": ("7. Botón 'Actualizar' (inferior izquierdo)", self.coord_btn_actualizar_var, "btn_actualizar_coord"),
+            "btn_actualizar": ("7. Botón 'Buscar / Actualizar' (inferior izquierdo)", self.coord_btn_actualizar_var, "btn_actualizar_coord"),
         }
 
         label_name, text_var, config_key = names[target_point]
@@ -751,7 +751,7 @@ class BotArticulosApp:
             "4. Campo 'Cantidad Pedido Mínimo'",
             "5. Campo 'Tiempo Lead'",
             "6. Campo 'Días de Tolerancia'",
-            "7. Botón 'Actualizar' (inferior izquierdo)",
+            "7. Botón 'Buscar / Actualizar' (inferior izquierdo)",
         ]
 
         def run_step(step_idx):
@@ -773,7 +773,7 @@ class BotArticulosApp:
             "4. 📦 Campo 'Cantidad Pedido Mínimo'\n"
             "5. ⏱️ Campo 'Tiempo Lead'\n"
             "6. ⏳ Campo 'Días de Tolerancia'\n"
-            "7. 💾 Botón 'Actualizar' (inferior izquierdo)\n\n"
+            "7. 💾 Botón 'Buscar / Actualizar' (inferior izquierdo)\n\n"
             "¿Deseas iniciar?",
         )
         if confirm:
