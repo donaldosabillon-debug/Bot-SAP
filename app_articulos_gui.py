@@ -112,7 +112,7 @@ class ColumnMappingDialog(tk.Toplevel):
         chk_min.pack(side=tk.LEFT)
         self.cb_min = ttk.Combobox(f2, textvariable=self.var_min, values=self.columns_list, state="readonly", width=26)
         self.cb_min.pack(side=tk.LEFT, padx=8)
-        self.cb_min.bind("<<ComboboxSelected>>", lambda e: self._update_sample(self.var_min, self.sample_min))
+        self.cb_min.bind("<<ComboboxSelected>>", lambda e: self._update_sample(self.var_min, self.sample_min, is_qty=True))
         ttk.Label(f2, textvariable=self.sample_min, foreground="#0369a1", font=("Segoe UI", 9, "italic")).pack(side=tk.LEFT, padx=10)
 
         # 3. Tiempo Lead
@@ -122,7 +122,7 @@ class ColumnMappingDialog(tk.Toplevel):
         chk_lead.pack(side=tk.LEFT)
         self.cb_lead = ttk.Combobox(f3, textvariable=self.var_lead, values=self.columns_list, state="readonly", width=26)
         self.cb_lead.pack(side=tk.LEFT, padx=8)
-        self.cb_lead.bind("<<ComboboxSelected>>", lambda e: self._update_sample(self.var_lead, self.sample_lead))
+        self.cb_lead.bind("<<ComboboxSelected>>", lambda e: self._update_sample(self.var_lead, self.sample_lead, is_qty=False))
         ttk.Label(f3, textvariable=self.sample_lead, foreground="#0369a1", font=("Segoe UI", 9, "italic")).pack(side=tk.LEFT, padx=10)
 
         # 4. Días de Tolerancia
@@ -132,7 +132,7 @@ class ColumnMappingDialog(tk.Toplevel):
         chk_tol.pack(side=tk.LEFT)
         self.cb_tol = ttk.Combobox(f4, textvariable=self.var_tol, values=self.columns_list, state="readonly", width=26)
         self.cb_tol.pack(side=tk.LEFT, padx=8)
-        self.cb_tol.bind("<<ComboboxSelected>>", lambda e: self._update_sample(self.var_tol, self.sample_tol))
+        self.cb_tol.bind("<<ComboboxSelected>>", lambda e: self._update_sample(self.var_tol, self.sample_tol, is_qty=False))
         ttk.Label(f4, textvariable=self.sample_tol, foreground="#0369a1", font=("Segoe UI", 9, "italic")).pack(side=tk.LEFT, padx=10)
 
         # Botones de Acción
@@ -156,7 +156,7 @@ class ColumnMappingDialog(tk.Toplevel):
             self.sample_min.set("(Campo desactivado)")
         else:
             self.cb_min.configure(state="readonly")
-            self._update_sample(self.var_min, self.sample_min)
+            self._update_sample(self.var_min, self.sample_min, is_qty=True)
 
     def _toggle_lead(self):
         if not self.flag_lead.get():
@@ -164,7 +164,7 @@ class ColumnMappingDialog(tk.Toplevel):
             self.sample_lead.set("(Campo desactivado)")
         else:
             self.cb_lead.configure(state="readonly")
-            self._update_sample(self.var_lead, self.sample_lead)
+            self._update_sample(self.var_lead, self.sample_lead, is_qty=False)
 
     def _toggle_tol(self):
         if not self.flag_tol.get():
@@ -172,9 +172,9 @@ class ColumnMappingDialog(tk.Toplevel):
             self.sample_tol.set("(Campo desactivado)")
         else:
             self.cb_tol.configure(state="readonly")
-            self._update_sample(self.var_tol, self.sample_tol)
+            self._update_sample(self.var_tol, self.sample_tol, is_qty=False)
 
-    def _update_sample(self, var_col: tk.StringVar, sample_var: tk.StringVar):
+    def _update_sample(self, var_col: tk.StringVar, sample_var: tk.StringVar, is_qty: bool = False):
         col = var_col.get()
         if not col or col == "(Omitir / No actualizar)" or col not in self.df.columns:
             sample_var.set("(Sin asignar)")
@@ -184,29 +184,41 @@ class ColumnMappingDialog(tk.Toplevel):
             if pd.notna(val) and str(val).strip():
                 sample_val = str(val).strip()
                 break
-        if sample_val.endswith(".0"):
-            sample_val = sample_val[:-2]
+        if sample_val and var_col != self.var_item:
+            try:
+                c = sample_val.replace(",", ".")
+                if c.count(".") > 1:
+                    parts = c.split(".")
+                    c = "".join(parts[:-1]) + "." + parts[-1]
+                f = float(c)
+                if is_qty and 0 < f < 1:
+                    sample_val = "1"
+                else:
+                    sample_val = str(int(round(f)))
+            except Exception:
+                if sample_val.endswith(".0"):
+                    sample_val = sample_val[:-2]
         sample_var.set(f'Ej: "{sample_val}"')
 
     def _update_all_samples(self):
         self._update_sample(self.var_item, self.sample_item)
         if self.flag_min.get():
             self.cb_min.configure(state="readonly")
-            self._update_sample(self.var_min, self.sample_min)
+            self._update_sample(self.var_min, self.sample_min, is_qty=True)
         else:
             self.cb_min.configure(state="disabled")
             self.sample_min.set("(Campo desactivado)")
 
         if self.flag_lead.get():
             self.cb_lead.configure(state="readonly")
-            self._update_sample(self.var_lead, self.sample_lead)
+            self._update_sample(self.var_lead, self.sample_lead, is_qty=False)
         else:
             self.cb_lead.configure(state="disabled")
             self.sample_lead.set("(Campo desactivado)")
 
         if self.flag_tol.get():
             self.cb_tol.configure(state="readonly")
-            self._update_sample(self.var_tol, self.sample_tol)
+            self._update_sample(self.var_tol, self.sample_tol, is_qty=False)
         else:
             self.cb_tol.configure(state="disabled")
             self.sample_tol.set("(Campo desactivado)")
@@ -665,14 +677,14 @@ class BotArticulosApp:
         self.tree.delete(*self.tree.get_children())
 
         for idx, row in df.iterrows():
-            i_val = str(row[mapping["item_col"]]) if pd.notna(row[mapping["item_col"]]) else ""
-            m_val = str(row[mapping["min_qty_col"]]) if flags.get("min_qty") and mapping["min_qty_col"] in df.columns and pd.notna(row[mapping["min_qty_col"]]) else "(Omitido)"
-            l_val = str(row[mapping["lead_time_col"]]) if flags.get("lead_time") and mapping["lead_time_col"] in df.columns and pd.notna(row[mapping["lead_time_col"]]) else "(Omitido)"
-            t_val = str(row[mapping["tolerance_col"]]) if flags.get("tolerance") and mapping["tolerance_col"] in df.columns and pd.notna(row[mapping["tolerance_col"]]) else "(Omitido)"
+            i_val = str(row[mapping["item_col"]]).strip() if pd.notna(row[mapping["item_col"]]) else ""
+            m_raw = row[mapping["min_qty_col"]] if flags.get("min_qty") and mapping["min_qty_col"] in df.columns else None
+            l_raw = row[mapping["lead_time_col"]] if flags.get("lead_time") and mapping["lead_time_col"] in df.columns else None
+            t_raw = row[mapping["tolerance_col"]] if flags.get("tolerance") and mapping["tolerance_col"] in df.columns else None
 
-            if m_val.endswith(".0"): m_val = m_val[:-2]
-            if l_val.endswith(".0"): l_val = l_val[:-2]
-            if t_val.endswith(".0"): t_val = t_val[:-2]
+            m_val = self.engine._clean_numeric_val(m_raw, is_quantity=True) if flags.get("min_qty") and mapping["min_qty_col"] in df.columns else "(Omitido)"
+            l_val = self.engine._clean_numeric_val(l_raw, is_quantity=False) if flags.get("lead_time") and mapping["lead_time_col"] in df.columns else "(Omitido)"
+            t_val = self.engine._clean_numeric_val(t_raw, is_quantity=False) if flags.get("tolerance") and mapping["tolerance_col"] in df.columns else "(Omitido)"
 
             self.tree.insert("", tk.END, iid=f"row_{idx}", values=(idx + 1, i_val, m_val, l_val, t_val, "Listo", "En espera"))
 

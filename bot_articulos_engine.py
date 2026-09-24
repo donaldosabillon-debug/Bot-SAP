@@ -309,11 +309,14 @@ class BotArticulosEngine:
         self._safe_paste(str(val))
         time.sleep(0.08)
 
-    def _clean_numeric_val(self, val: Any) -> str:
+    def _clean_numeric_val(self, val: Any, is_quantity: bool = False) -> str:
         """
-        Limpia un valor numérico proveniente de Excel / CSV.
-        Convierte valores como '100.0', '100.00', '100', 100.0 en '100' limpio,
-        sin decimales residuales ni puntos flotantes no deseados.
+        Modela y limpia valores numéricos para SAP Business One.
+        SAP B1 rechaza decimales en Tiempo Lead, Días de Tolerancia y en Artículos con unidad entera.
+        Esta función modela cualquier valor numérico a un entero limpio:
+        - Redondea al entero más próximo (round): '15.4' -> '15', '15.8' -> '16'.
+        - Si es cantidad mínima y el valor es mayor a 0 pero menor a 1 (ej: 0.33), lo modela a 1.
+        - Elimina cualquier punto flotante residual para garantizar que SAP guarde sin error.
         """
         if pd.isna(val) or val is None:
             return ""
@@ -322,14 +325,15 @@ class BotArticulosEngine:
             return ""
         try:
             cleaned_s = s.replace(",", ".")
+            if cleaned_s.count(".") > 1:
+                parts = cleaned_s.split(".")
+                cleaned_s = "".join(parts[:-1]) + "." + parts[-1]
             f = float(cleaned_s)
-            if f.is_integer():
-                return str(int(f))
-            return f"{f:g}"
+            if is_quantity and 0 < f < 1:
+                return "1"
+            return str(int(round(f)))
         except Exception:
-            if s.endswith(".0"):
-                s = s[:-2]
-            return s
+            return "".join(c for c in s if c.isdigit())
 
     def _safe_click(self, coord: Optional[Tuple[int, int]], clicks: int = 1):
         if not coord:
@@ -516,9 +520,9 @@ class BotArticulosEngine:
         for idx, row in df.iterrows():
             item_code = str(row[item_col]).strip() if pd.notna(row[item_col]) else ""
             if item_code and item_code.lower() != "nan":
-                min_val = self._clean_numeric_val(row[min_col]) if min_col and min_col in df.columns else ""
-                lead_val = self._clean_numeric_val(row[lead_col]) if lead_col and lead_col in df.columns else ""
-                tol_val = self._clean_numeric_val(row[tol_col]) if tol_col and tol_col in df.columns else ""
+                min_val = self._clean_numeric_val(row[min_col], is_quantity=True) if min_col and min_col in df.columns else ""
+                lead_val = self._clean_numeric_val(row[lead_col], is_quantity=False) if lead_col and lead_col in df.columns else ""
+                tol_val = self._clean_numeric_val(row[tol_col], is_quantity=False) if tol_col and tol_col in df.columns else ""
                 valid_rows.append((idx, item_code, min_val, lead_val, tol_val))
 
         if not valid_rows:
@@ -630,9 +634,9 @@ class BotArticulosEngine:
             valid_rows = []
             for idx, row in df.iterrows():
                 item_code = str(row[item_col]).strip() if pd.notna(row[item_col]) else ""
-                min_val = self._clean_numeric_val(row[min_col]) if min_col and min_col in df.columns else ""
-                lead_val = self._clean_numeric_val(row[lead_col]) if lead_col and lead_col in df.columns else ""
-                tol_val = self._clean_numeric_val(row[tol_col]) if tol_col and tol_col in df.columns else ""
+                min_val = self._clean_numeric_val(row[min_col], is_quantity=True) if min_col and min_col in df.columns else ""
+                lead_val = self._clean_numeric_val(row[lead_col], is_quantity=False) if lead_col and lead_col in df.columns else ""
+                tol_val = self._clean_numeric_val(row[tol_col], is_quantity=False) if tol_col and tol_col in df.columns else ""
 
                 if item_code and item_code.lower() != "nan":
                     valid_rows.append((idx, item_code, min_val, lead_val, tol_val))
