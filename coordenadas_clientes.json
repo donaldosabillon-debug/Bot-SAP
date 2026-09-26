@@ -1,11 +1,11 @@
 {
     "btn_buscar_coord": [
-        2228,
-        -63
+        2241,
+        -60
     ],
     "btn_crear_coord": [
-        2266,
-        -63
+        2274,
+        -70
     ],
     "btn_confirmar_crear_coord": [
         2200,
@@ -36,32 +36,32 @@
         140
     ],
     "rtn_coord": [
-        2135,
-        86
+        2134,
+        90
     ],
     "telefono_coord": [
-        2135,
-        162
+        2092,
+        166
     ],
     "movil_coord": [
-        2135,
-        192
+        2101,
+        197
     ],
     "correo_coord": [
-        2135,
-        222
+        2118,
+        226
     ],
     "activo_coord": [
         1951,
         817
     ],
     "wbcustid_coord": [
-        3870,
-        878
+        3849,
+        873
     ],
     "syncflag_coord": [
-        3870,
-        928
+        3829,
+        906
     ],
     "definir_nuevo_factura_coord": [
         1990,

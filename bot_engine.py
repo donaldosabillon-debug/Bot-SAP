@@ -582,10 +582,8 @@ class BotEngine:
         btn_confirmar = self.config.get("btn_confirmar_crear_coord")
         btn_buscar = self.config.get("btn_buscar_coord")
 
-        # 1. Cerrar posibles popups de alerta
+        # 1. Cerrar posibles popups de alerta solo con ESC (NUNCA enviar Enter porque cerraría la ventana de SAP si el botón es OK)
         self._press_key(win32con.VK_ESCAPE)
-        time.sleep(0.15)
-        self._press_enter()
         time.sleep(0.20)
 
         # 2. Clic en 'Crear / Añadir'
@@ -836,32 +834,24 @@ class BotEngine:
         time.sleep(self.config.get("delay_after_save", 0.85))
 
         # ========================================================
-        # PASO 6: Captura del Mensaje de SAP (Clic derecho ➔ Copiar)
+        # PASO 6: Captura del Mensaje de SAP
         # ========================================================
         sap_msg = ""
-        if self.config.get("barra_estado_coord"):
-            sap_msg = self._copy_status_bar_message()
-
-        # Si no capturó texto en la barra, verificar si hay un popup modal de SAP
+        # Verificar primero si surgió algún cuadro modal de error
         popup = self._detect_sap_popup()
         if popup:
             _, popup_text = popup
-            if not sap_msg:
-                sap_msg = popup_text
+            sap_msg = popup_text
+            # Cerrar el popup de alerta solo con ESC (sin Enter para no presionar OK en la ventana principal)
             self._press_key(win32con.VK_ESCAPE)
-            time.sleep(0.15)
-            self._press_enter()
-            time.sleep(0.15)
+            time.sleep(0.20)
+
+        # Si no hubo popup modal, intentar leer el mensaje de la barra de estado inferior
+        if not sap_msg and self.config.get("barra_estado_coord"):
+            sap_msg = self._copy_status_bar_message()
 
         # ========================================================
-        # PASO 7: Transición y Limpieza Universal (Nuevo ➔ OK ➔ Buscar)
-        # ========================================================
-        # Se guarde o no, se ejecuta Nuevo ➔ OK ➔ Buscar para dejar la pantalla
-        # 100% lista en Modo Buscar para el siguiente socio de negocio.
-        self._recover_and_reset_to_search()
-
-        # ========================================================
-        # PASO 8: Clasificación de Resultado
+        # PASO 7: Clasificación de Resultado
         # ========================================================
         msg_lower = sap_msg.lower() if sap_msg else ""
         is_success = any(w in msg_lower for w in ["éxito", "exito", "correcta", "finalizada con éxito", "actualizad"])
@@ -870,11 +860,17 @@ class BotEngine:
         # Si detectamos error o vino popup
         if popup or is_error or (sap_msg and not is_success and len(sap_msg) > 6):
             err_desc = sap_msg or (popup[1] if popup else "Error al guardar en SAP Business One")
+            # Auto-recuperación SOLO ante error para descartar cambios sucios y regresar a Modo Buscar
+            if self.config.get("auto_recover_on_error", True):
+                self._recover_and_reset_to_search()
             raise Exception(f"{err_desc}")
 
         if sap_msg:
             actualizados.append(f"SAP='{sap_msg}'")
 
+        # GUARDADO EXITOSO:
+        # NO se toca el botón OK ni se envía Enter para evitar cerrar la ventana de SAP ("sacarlo de pantalla").
+        # Al iniciar el siguiente cliente, PASO 1 enviará Ctrl+F nativo para volver a Modo Buscar limpiamente.
         return actualizados
 
     def run_single_test_client(
