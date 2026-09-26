@@ -304,9 +304,11 @@ class BotClientesApp:
             "activo": tk.StringVar(value="No calibrado"),
             "wbcustid": tk.StringVar(value="No calibrado"),
             "syncflag": tk.StringVar(value="No calibrado"),
+            "definir_nuevo_factura": tk.StringVar(value="No calibrado"),
             "id_direccion": tk.StringVar(value="No calibrado"),
             "calle_numero": tk.StringVar(value="No calibrado"),
             "ciudad": tk.StringVar(value="No calibrado"),
+            "btn_copiar_direccion": tk.StringVar(value="No calibrado"),
             "indicador_impuestos": tk.StringVar(value="No calibrado"),
         }
 
@@ -349,9 +351,11 @@ class BotClientesApp:
             "activo": "activo_coord",
             "wbcustid": "wbcustid_coord",
             "syncflag": "syncflag_coord",
+            "definir_nuevo_factura": "definir_nuevo_factura_coord",
             "id_direccion": "id_direccion_coord",
             "calle_numero": "calle_numero_coord",
             "ciudad": "ciudad_coord",
+            "btn_copiar_direccion": "btn_copiar_direccion_coord",
             "indicador_impuestos": "indicador_impuestos_coord",
         }
         for var_key, cfg_key in key_map.items():
@@ -487,12 +491,13 @@ class BotClientesApp:
         self._build_calib_row(tab_gen, "activo", "🔘 12. Radio button 'Activo' (General)", "wbcustid", "🏷️ 13. Campo 'WBCUSTID' (UDF)")
         self._build_calib_row(tab_gen, "syncflag", "🚩 14. Campo 'SyncFlag' (UDF)", None, None)
 
-        # Pestaña C: Direcciones
+        # Pestaña C: Direcciones (Destinatario ➔ Copiar >> ➔ Destino)
         tab_dir = ttk.Frame(nb_calib, padding="6")
         nb_calib.add(tab_dir, text=" 📍 Pestaña Direcciones ")
 
-        self._build_calib_row(tab_dir, "id_direccion", "📍 15. Campo 'ID de Dirección'", "calle_numero", "🏠 16. Campo 'Calle/ Número'")
-        self._build_calib_row(tab_dir, "ciudad", "🏙️ 17. Campo 'Ciudad'", "indicador_impuestos", "🏷️ 18. Campo 'Indicador de Impuestos'")
+        self._build_calib_row(tab_dir, "definir_nuevo_factura", "📄 15. 'Definir nuevo' (Factura)", "id_direccion", "📍 16. Campo 'ID de Dirección'")
+        self._build_calib_row(tab_dir, "calle_numero", "🏠 17. Campo 'Calle/ Número'", "ciudad", "🏙️ 18. Campo 'Ciudad'")
+        self._build_calib_row(tab_dir, "btn_copiar_direccion", "⏩ 19. Botón 'Copiar >>' (a Destino)", "indicador_impuestos", "🏷️ 20. Campo 'Impuestos' (en Destino)")
 
         # Barra inferior de calibración
         calib_bottom = ttk.Frame(calib_card)
@@ -800,9 +805,11 @@ class BotClientesApp:
 
         if any(flags.get(k) for k in ["id_direccion", "calle_numero", "ciudad", "indicador_impuestos"]):
             active_points.append("tab_direcciones")
+            active_points.append("definir_nuevo_factura")
             if flags.get("id_direccion"): active_points.append("id_direccion")
             if flags.get("calle_numero"): active_points.append("calle_numero")
             if flags.get("ciudad"): active_points.append("ciudad")
+            active_points.append("btn_copiar_direccion")
             if flags.get("indicador_impuestos"): active_points.append("indicador_impuestos")
 
         def run_step(step_idx):

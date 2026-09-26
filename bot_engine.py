@@ -80,10 +80,12 @@ class BotEngine:
             "syncflag_coord": None,                # Campo "SyncFlag" en panel UDF
 
             # 3. Pestaña Direcciones
+            "definir_nuevo_factura_coord": None,   # Opción 'Definir nuevo' bajo Destinatario de factura
             "id_direccion_coord": None,            # Campo "ID de dirección"
             "calle_numero_coord": None,            # Campo "Calle/ Número"
             "ciudad_coord": None,                  # Campo "Ciudad"
-            "indicador_impuestos_coord": None,     # Campo "Indicador de impuestos"
+            "btn_copiar_direccion_coord": None,    # Botón copiar (>>) a Destino
+            "indicador_impuestos_coord": None,     # Campo "Indicador de impuestos" (en Destino)
         }
 
         # Cargar coordenadas previas si existen en JSON
@@ -142,9 +144,11 @@ class BotEngine:
                 "activo_coord": self.config.get("activo_coord"),
                 "wbcustid_coord": self.config.get("wbcustid_coord"),
                 "syncflag_coord": self.config.get("syncflag_coord"),
+                "definir_nuevo_factura_coord": self.config.get("definir_nuevo_factura_coord"),
                 "id_direccion_coord": self.config.get("id_direccion_coord"),
                 "calle_numero_coord": self.config.get("calle_numero_coord"),
                 "ciudad_coord": self.config.get("ciudad_coord"),
+                "btn_copiar_direccion_coord": self.config.get("btn_copiar_direccion_coord"),
                 "indicador_impuestos_coord": self.config.get("indicador_impuestos_coord"),
             }
             with open(self.CONFIG_FILE, "w", encoding="utf-8") as f:
@@ -710,7 +714,7 @@ class BotEngine:
             time.sleep(self.config.get("delay_between_fields", 0.22))
 
         # ========================================================
-        # PASO 4: Pestaña Direcciones
+        # PASO 4: Pestaña Direcciones (Destinatario ➔ Copiar >> ➔ Destino)
         # ========================================================
         has_dir_fields = (
             (self.update_flags.get("id_direccion") and id_dir_val and id_dir_coord) or
@@ -724,29 +728,46 @@ class BotEngine:
             self._safe_click(tab_dir)
             time.sleep(self.config.get("delay_after_tab_click", 0.40))
 
-        if self.update_flags.get("id_direccion") and id_dir_val and id_dir_coord:
-            self._check_pause()
-            self._write_field_value(id_dir_coord, id_dir_val, "ID Dirección")
-            actualizados.append(f"ID_Dir={id_dir_val}")
-            time.sleep(self.config.get("delay_between_fields", 0.22))
+            # 4.1 Clic en 'Definir nuevo' bajo Destinatario de Factura si está calibrado
+            btn_def_nuevo = self.config.get("definir_nuevo_factura_coord")
+            if btn_def_nuevo:
+                self._check_pause()
+                self._safe_click(btn_def_nuevo)
+                time.sleep(0.35)
 
-        if self.update_flags.get("calle_numero") and calle_val and calle_coord:
-            self._check_pause()
-            self._write_field_value(calle_coord, calle_val, "Calle/Número")
-            actualizados.append(f"Calle={calle_val}")
-            time.sleep(self.config.get("delay_between_fields", 0.22))
+            # 4.2 Llenar datos de la dirección en Destinatario de Factura (sin impuesto)
+            if self.update_flags.get("id_direccion") and id_dir_val and id_dir_coord:
+                self._check_pause()
+                self._write_field_value(id_dir_coord, id_dir_val, "ID Dirección")
+                actualizados.append(f"ID_Dir={id_dir_val}")
+                time.sleep(self.config.get("delay_between_fields", 0.22))
 
-        if self.update_flags.get("ciudad") and ciudad_val and ciudad_coord:
-            self._check_pause()
-            self._write_field_value(ciudad_coord, ciudad_val, "Ciudad")
-            actualizados.append(f"Ciudad={ciudad_val}")
-            time.sleep(self.config.get("delay_between_fields", 0.22))
+            if self.update_flags.get("calle_numero") and calle_val and calle_coord:
+                self._check_pause()
+                self._write_field_value(calle_coord, calle_val, "Calle/Número")
+                actualizados.append(f"Calle={calle_val}")
+                time.sleep(self.config.get("delay_between_fields", 0.22))
 
-        if self.update_flags.get("indicador_impuestos") and imp_val and imp_coord:
-            self._check_pause()
-            self._write_field_value(imp_coord, imp_val, "Impuestos")
-            actualizados.append(f"Imp={imp_val}")
-            time.sleep(self.config.get("delay_between_fields", 0.22))
+            if self.update_flags.get("ciudad") and ciudad_val and ciudad_coord:
+                self._check_pause()
+                self._write_field_value(ciudad_coord, ciudad_val, "Ciudad")
+                actualizados.append(f"Ciudad={ciudad_val}")
+                time.sleep(self.config.get("delay_between_fields", 0.22))
+
+            # 4.3 Clic en botón Copiar (>>) para replicar a Destino
+            btn_copiar = self.config.get("btn_copiar_direccion_coord")
+            if btn_copiar:
+                self._check_pause()
+                self._safe_click(btn_copiar)
+                # Esperar a que SAP copie y enfoque automáticamente la dirección en Destino
+                time.sleep(0.50)
+
+            # 4.4 En Destino, escribir el Indicador de Impuestos
+            if self.update_flags.get("indicador_impuestos") and imp_val and imp_coord:
+                self._check_pause()
+                self._write_field_value(imp_coord, imp_val, "Impuestos")
+                actualizados.append(f"Imp={imp_val}")
+                time.sleep(self.config.get("delay_between_fields", 0.22))
 
         self._check_pause()
 
