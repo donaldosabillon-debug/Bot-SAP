@@ -1,45 +1,90 @@
 {
     "btn_buscar_coord": [
-        2297,
-        -48
+        2228,
+        -63
     ],
     "btn_crear_coord": [
-        2273,
-        -48
+        2266,
+        -63
     ],
     "btn_confirmar_crear_coord": [
-        2267,
-        -61
+        2200,
+        80
     ],
     "card_code_coord": [
-        2261,
-        36
+        2135,
+        16
     ],
     "btn_actualizar_coord": [
-        2000,
-        951
+        1977,
+        905
     ],
     "barra_estado_coord": [
-        1982,
-        955
+        2070,
+        938
     ],
     "menu_copiar_error_coord": [
-        2059,
-        931
+        2110,
+        915
     ],
-    "tab_general_coord": null,
-    "tab_direcciones_coord": null,
-    "rtn_coord": null,
-    "telefono_coord": null,
-    "movil_coord": null,
-    "correo_coord": null,
-    "activo_coord": null,
-    "wbcustid_coord": null,
-    "syncflag_coord": null,
-    "definir_nuevo_factura_coord": null,
-    "id_direccion_coord": null,
-    "calle_numero_coord": null,
-    "ciudad_coord": null,
-    "btn_copiar_direccion_coord": null,
-    "indicador_impuestos_coord": null
+    "tab_general_coord": [
+        2055,
+        140
+    ],
+    "tab_direcciones_coord": [
+        2415,
+        140
+    ],
+    "rtn_coord": [
+        2135,
+        86
+    ],
+    "telefono_coord": [
+        2135,
+        162
+    ],
+    "movil_coord": [
+        2135,
+        192
+    ],
+    "correo_coord": [
+        2135,
+        222
+    ],
+    "activo_coord": [
+        1951,
+        817
+    ],
+    "wbcustid_coord": [
+        3870,
+        878
+    ],
+    "syncflag_coord": [
+        3870,
+        928
+    ],
+    "definir_nuevo_factura_coord": [
+        1990,
+        224
+    ],
+    "id_direccion_coord": [
+        3460,
+        204
+    ],
+    "calle_numero_coord": [
+        3460,
+        260
+    ],
+    "ciudad_coord": [
+        3460,
+        289
+    ],
+    "btn_copiar_direccion_coord": [
+        3520,
+        909
+    ],
+    "indicador_impuestos_coord": [
+        3460,
+        369
+    ]
 }
