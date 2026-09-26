@@ -29,12 +29,21 @@ Automatiza la actualización masiva de los parámetros de planificación en la v
 
 ---
 
-## 📦 2. Bot de Clientes: Sincronización Zoho y Eliminación de Duplicados
+## 👥 2. Bot de Clientes: Actualización Masiva de Socios de Negocios
 👉 **Archivo de Inicio:** `ejecutar_bot.bat`
 
-Contiene dos modos operativos en la ventana de **"Datos maestros de socio de negocios"**:
-- **Modo 1: Sincronización Zoho CRM**: Digita `WBCUSTID` y marca `SyncFlag = 'T'`.
-- **Modo 2: Eliminación Masiva de Duplicados**: Busca cada cliente y ejecuta la orden de eliminar (`Alt + D` ➔ `Eliminar` ➔ Confirmar).
+Automatiza la actualización selectiva y masiva de socios de negocios en **"Datos maestros socio de negocios"** con mapeo interactivo de columnas, modelado numérico sin decimales y auto-recuperación ante errores:
+- **Cabecera**: Código de Cliente (`card_code`), RTN (`rtn`).
+- **Pestaña General**: Teléfono 1 (`telefono`), Teléfono Móvil (`movil`), Correo Electrónico (`correo`), Estado Activo (`activo`).
+- **Panel Lateral UDF**: `WBCUSTID` y `SyncFlag` (Sincronización con Zoho CRM).
+- **Pestaña Direcciones**: ID de dirección (`id_direccion`), Calle/ Número (`calle_numero`), Ciudad (`ciudad`), Indicador de impuestos (`indicador_impuestos`).
+
+### Características Clave:
+1. **Modelado Numérico Sin Errores**: Normaliza automáticamente enteros en teléfonos, RTN, WBCUSTID y direcciones, eliminando decimales residuales de Excel (`.0`) y preservando ceros a la izquierda (vital para el formato RTN de Honduras).
+2. **Ciclo de Búsqueda Seguro en RDP**: Utiliza la secuencia probada de productos: Clic en Lupa (`[2297, -48]`) ➔ Pegado de código ➔ Clic en botón inferior *Buscar/Actualizar* (`[2000, 951]`) ➔ Pegado atómico en campos ➔ Clic en *Actualizar*.
+3. **Protocolo de Auto-Recuperación ante Errores**: Si SAP rechaza guardar un socio de negocio (por validación fiscal de RTN, dirección duplicada, etc.), el bot no se detiene ni se traba: ejecuta automáticamente **Crear nuevo ➔ Descartar modificaciones ➔ Buscar (Lupa)** y pasa al siguiente cliente.
+4. **Prueba con 1 Cliente (`🧪 PROBAR CON 1 CLIENTE`)**: Permite verificar la sincronización de un único registro antes de lanzar la corrida masiva.
+5. **Compatibilidad Dual-Monitor**: Diseñado para configuraciones de pantalla extendida (ej. Laptop + Monitor RDP) con exclusión automática de ventanas como WhatsApp.
 
 ---
 

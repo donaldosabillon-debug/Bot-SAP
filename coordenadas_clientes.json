@@ -1,0 +1,32 @@
+{
+    "btn_buscar_coord": [
+        2297,
+        -48
+    ],
+    "btn_crear_coord": [
+        2273,
+        -48
+    ],
+    "btn_confirmar_crear_coord": null,
+    "card_code_coord": [
+        2261,
+        36
+    ],
+    "btn_actualizar_coord": [
+        2000,
+        951
+    ],
+    "tab_general_coord": null,
+    "tab_direcciones_coord": null,
+    "rtn_coord": null,
+    "telefono_coord": null,
+    "movil_coord": null,
+    "correo_coord": null,
+    "activo_coord": null,
+    "wbcustid_coord": null,
+    "syncflag_coord": null,
+    "id_direccion_coord": null,
+    "calle_numero_coord": null,
+    "ciudad_coord": null,
+    "indicador_impuestos_coord": null
+}

@@ -1,134 +1,262 @@
 """
 bot_engine.py
-Motor de automatización RPA para SAP Business One (HANA).
-Soporta:
-  1. Modo Sincronización: Digitación de WBCUSTID (Zoho ID) y SyncFlag = 'T'.
-  2. Modo Eliminación: Búsqueda y eliminación de Socios de Negocios duplicados.
+Motor RPA robusto para actualización de Socios de Negocios / Clientes en SAP Business One (HANA).
+Permite mapeo dinámico, calibración de puntos y actualización selectiva de:
+  - Cabecera: Código de Cliente, RTN
+  - Pestaña General: Teléfono 1, Teléfono móvil, Correo electrónico, Estado Activo
+  - Panel UDF: WBCUSTID, SyncFlag
+  - Pestaña Direcciones: ID de dirección, Calle/Número, Ciudad, Indicador de impuestos
+  - Protocolo de auto-recuperación ante errores al Actualizar (Crear ➔ Descartar ➔ Buscar).
+
+Lazarus & Lazarus.
 """
 
+import ctypes
+try:
+    ctypes.windll.shcore.SetProcessDpiAwareness(2) # Per-monitor DPI aware
+except Exception:
+    try:
+        ctypes.windll.user32.SetProcessDPIAware()
+    except Exception:
+        pass
+
+import os
+import re
+import json
 import time
 import threading
 from typing import Optional, Callable, Dict, Any, List, Tuple
 import pandas as pd
-import pyautogui
 import pyperclip
+
+import win32api
+import win32con
+import win32gui
 
 import window_manager
 
-# Configurar seguridad básica de PyAutoGUI
-pyautogui.FAILSAFE = True
-pyautogui.PAUSE = 0.05
-
 
 class SAPWindowNotFoundError(Exception):
-    """Excepción lanzada cuando no se detecta la ventana de SAP ni Escritorio Remoto."""
     pass
 
 
 class BotEngine:
+    CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "coordenadas_clientes.json")
+
     def __init__(self):
         self._stop_event = threading.Event()
         self._pause_event = threading.Event()
-        self._pause_event.set()  # Por defecto no pausado
+        self._pause_event.set()
         self.is_running = False
 
-        # Configuración general y de tiempos
+        # Configuración de tiempos y coordenadas
         self.config = {
             "countdown_seconds": 3,
-            "delay_after_find": 0.4,          # Tiempo tras presionar Ctrl+F
-            "delay_after_search": 0.9,        # Tiempo para que SAP cargue el socio
-            "delay_after_field_focus": 0.2,   # Tiempo tras enfocar WBCUSTID
-            "delay_between_fields": 0.2,      # Tiempo entre WBCUSTID y SyncFlag
-            "delay_after_save": 0.7,          # Tiempo tras presionar Actualizar
-            "action_save": "alt_a",           # 'alt_a', 'enter', o 'click'
-            "zoho_field_coord": None,         # Tupla (x, y) de la posición de WBCUSTID
-            "syncflag_mode": "tab",           # 'tab' o 'click'
-            "syncflag_tab_count": 1,          # Tabs necesarios para llegar a SyncFlag
-            "syncflag_coord": None,           # Tupla (x, y) de SyncFlag si modo es click
-            "syncflag_value": "T",            # Valor a asignar (T = True / Sincronizado)
-            "update_syncflag": True,          # Si debe actualizar SyncFlag
-            "save_btn_coord": None,           # Tupla (x, y) opcional del botón Actualizar
-            "custom_window_title": None,      # Título específico opcional
-            # Parámetros para Modo Eliminación
-            "delete_method": "menu_alt_d",    # 'menu_alt_d' o 'right_click'
-            "delete_click_coord": None,       # Tupla (x, y) para clic derecho en cabecera
-            "delay_after_delete_action": 0.5, # Espera tras invocar menú eliminar
-            "delay_after_confirm_delete": 0.8,# Espera tras confirmar eliminación
+            "delay_after_find": 0.45,
+            "delay_after_search": 1.0,
+            "delay_after_tab_click": 0.4,
+            "delay_between_fields": 0.22,
+            "delay_after_save": 0.85,
+            "custom_window_title": None,
+            "auto_recover_on_error": True,
+
+            # Coordenadas calibradas (X, Y)
+            # 1. Navegación y Control
+            "btn_buscar_coord": (2297, -48),          # Lupa en barra de herramientas de SAP
+            "btn_crear_coord": (2273, -48),           # Botón Crear / Añadir en barra de SAP (recuperación)
+            "btn_confirmar_crear_coord": None,        # Botón confirmar 'Crear nuevo' / Descartar
+            "card_code_coord": (2261, 36),            # Campo "Código" de Socio de Negocios
+            "btn_actualizar_coord": (2000, 951),       # Botón inferior izquierdo ("Buscar" / "Actualizar")
+            "tab_general_coord": None,                 # Pestaña "General"
+            "tab_direcciones_coord": None,             # Pestaña "Direcciones"
+
+            # 2. Cabecera y Pestaña General
+            "rtn_coord": None,                     # Campo "RTN" en la cabecera
+            "telefono_coord": None,                # Campo "Teléfono 1" en pestaña General
+            "movil_coord": None,                   # Campo "Teléfono móvil" en pestaña General
+            "correo_coord": None,                  # Campo "Correo electrónico" en pestaña General
+            "activo_coord": None,                  # Radio button "Activo" en pestaña General
+            "wbcustid_coord": None,                # Campo "WBCUSTID" en panel UDF
+            "syncflag_coord": None,                # Campo "SyncFlag" en panel UDF
+
+            # 3. Pestaña Direcciones
+            "id_direccion_coord": None,            # Campo "ID de dirección"
+            "calle_numero_coord": None,            # Campo "Calle/ Número"
+            "ciudad_coord": None,                  # Campo "Ciudad"
+            "indicador_impuestos_coord": None,     # Campo "Indicador de impuestos"
         }
 
-        # Datos cargados
-        self.dataframe: Optional[pd.DataFrame] = None
-        self.sap_col: Optional[str] = None
-        self.zoho_col: Optional[str] = None
+        # Cargar coordenadas previas si existen en JSON
+        self.load_coordinates_from_file()
 
-    def load_file(self, file_path: str) -> Tuple[pd.DataFrame, str, str]:
+        # Estado del mapeo de campos
+        self.dataframe: Optional[pd.DataFrame] = None
+        self.column_mapping: Dict[str, str] = {
+            "card_code": "",
+            "rtn": "",
+            "telefono": "",
+            "movil": "",
+            "correo": "",
+            "activo": "",
+            "wbcustid": "",
+            "syncflag": "",
+            "id_direccion": "",
+            "calle_numero": "",
+            "ciudad": "",
+            "indicador_impuestos": "",
+        }
+
+        # Banderas de activación de cada campo
+        self.update_flags: Dict[str, bool] = {
+            "rtn": True,
+            "telefono": True,
+            "movil": True,
+            "correo": True,
+            "activo": True,
+            "wbcustid": True,
+            "syncflag": True,
+            "id_direccion": True,
+            "calle_numero": True,
+            "ciudad": True,
+            "indicador_impuestos": True,
+        }
+
+        # Callback para notificación externa de cambio de pausa (F8, Pausa o botón)
+        self.on_pause_callback: Optional[Callable[[bool], None]] = None
+
+    def save_coordinates_to_file(self) -> bool:
+        """Guarda las coordenadas actuales en el archivo JSON persistente."""
+        try:
+            coords = {
+                "btn_buscar_coord": self.config.get("btn_buscar_coord"),
+                "btn_crear_coord": self.config.get("btn_crear_coord"),
+                "btn_confirmar_crear_coord": self.config.get("btn_confirmar_crear_coord"),
+                "card_code_coord": self.config.get("card_code_coord"),
+                "btn_actualizar_coord": self.config.get("btn_actualizar_coord"),
+                "tab_general_coord": self.config.get("tab_general_coord"),
+                "tab_direcciones_coord": self.config.get("tab_direcciones_coord"),
+                "rtn_coord": self.config.get("rtn_coord"),
+                "telefono_coord": self.config.get("telefono_coord"),
+                "movil_coord": self.config.get("movil_coord"),
+                "correo_coord": self.config.get("correo_coord"),
+                "activo_coord": self.config.get("activo_coord"),
+                "wbcustid_coord": self.config.get("wbcustid_coord"),
+                "syncflag_coord": self.config.get("syncflag_coord"),
+                "id_direccion_coord": self.config.get("id_direccion_coord"),
+                "calle_numero_coord": self.config.get("calle_numero_coord"),
+                "ciudad_coord": self.config.get("ciudad_coord"),
+                "indicador_impuestos_coord": self.config.get("indicador_impuestos_coord"),
+            }
+            with open(self.CONFIG_FILE, "w", encoding="utf-8") as f:
+                json.dump(coords, f, indent=4)
+            return True
+        except Exception:
+            return False
+
+    def load_coordinates_from_file(self) -> Dict[str, Any]:
+        """Carga las coordenadas almacenadas previamente en el archivo JSON."""
+        if os.path.exists(self.CONFIG_FILE):
+            try:
+                with open(self.CONFIG_FILE, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                for k, v in data.items():
+                    if k in self.config and v is not None:
+                        self.config[k] = tuple(v) if isinstance(v, (list, tuple)) else None
+                return data
+            except Exception:
+                pass
+        return {}
+
+    def load_file(self, file_path: str) -> Tuple[pd.DataFrame, Dict[str, str]]:
         """
-        Carga un archivo Excel o CSV y auto-detecta las columnas de Código SAP y WBCUSTID/Zoho ID.
-        Retorna (df, sap_col_name, zoho_col_name).
+        Carga un archivo Excel o CSV y auto-detecta las mejores coincidencias de columnas para Clientes.
         """
         if file_path.lower().endswith(".csv"):
             df = pd.read_csv(file_path, dtype=str)
         else:
             df = pd.read_excel(file_path, dtype=str)
 
-        # Limpiar nombres de columnas
         df.columns = [str(c).strip() for c in df.columns]
 
-        # Auto-detectar columna de Código SAP
-        sap_candidates = [
-            "codigo_sn", "codigo sn", "cod_sn", "cod sn", "codigosn",
-            "codigo_sap", "codigosap", "cardcode", "codigo", "código",
-            "cod_cliente", "cod cliente", "cliente", "id_sap", "sap_code", "sap"
-        ]
-        detected_sap = None
-        for cand in sap_candidates:
-            for col in df.columns:
-                if cand == col.lower().strip():
-                    detected_sap = col
-                    break
-            if detected_sap:
-                break
-        if not detected_sap:
-            for cand in sap_candidates:
-                for col in df.columns:
-                    if cand in col.lower().strip():
-                        detected_sap = col
-                        break
-                if detected_sap:
-                    break
+        candidates = {
+            "card_code": [
+                "codigo_sn", "codigo sn", "cod_sn", "cod sn", "codigosn", "cardcode",
+                "card_code", "codigo_cliente", "codigo cliente", "codigo", "código",
+                "cliente", "id_cliente", "id_sap", "sap_code"
+            ],
+            "rtn": [
+                "rtn", "id_fiscal", "identificacion", "rfc", "nit", "tax_id", "cai",
+                "numero_rtn", "rtn_cliente"
+            ],
+            "telefono": [
+                "telefono_1", "telefono 1", "telefono1", "telefono", "teléfono",
+                "tel 1", "tel1", "tel", "phone"
+            ],
+            "movil": [
+                "telefono_movil", "telefono movil", "celular", "movil", "móvil",
+                "mobile", "tel_movil", "tel movil", "telefono_2", "telefono 2"
+            ],
+            "correo": [
+                "correo_electronico", "correo electronico", "correo", "email",
+                "e-mail", "mail", "correo_cobro", "correo_cliente"
+            ],
+            "activo": [
+                "activo", "estado", "active", "status", "es_activo", "habilitado"
+            ],
+            "wbcustid": [
+                "wbcustid", "u_wbcustid", "id_zoho", "id zoho", "zoho_id", "zoho id",
+                "zoho", "record_id", "id_cliente_zoho", "id_interno"
+            ],
+            "syncflag": [
+                "syncflag", "u_syncflag", "sync_flag", "sync", "sincronizado",
+                "flag_sincronizacion"
+            ],
+            "id_direccion": [
+                "id_direccion", "id direccion", "direccion_id", "nombre_direccion",
+                "tipo_direccion", "address_id", "codigo_direccion"
+            ],
+            "calle_numero": [
+                "calle_numero", "calle numero", "calle", "calle/numero", "calle / numero",
+                "direccion", "dirección", "address", "linea_direccion", "dir"
+            ],
+            "ciudad": [
+                "ciudad", "city", "municipio", "poblacion", "localidad", "distrito"
+            ],
+            "indicador_impuestos": [
+                "indicador_impuestos", "indicador impuestos", "indicador_impuesto",
+                "impuesto", "tax", "tax_code", "indicador_de_impuestos", "isv",
+                "cod_impuesto", "codigo_impuesto"
+            ],
+        }
 
-        # Auto-detectar columna de WBCUSTID / ID Zoho
-        zoho_candidates = [
-            "wbcustid", "u_wbcustid", "id_zoho", "id zoho", "idzoho",
-            "zoho_id", "zoho id", "id_interno", "id interno", "record_id", "record id", "zoho", "id"
-        ]
-        detected_zoho = None
-        for cand in zoho_candidates:
-            for col in df.columns:
-                if cand == col.lower().strip():
-                    detected_zoho = col
-                    break
-            if detected_zoho:
-                break
-        if not detected_zoho:
-            for cand in zoho_candidates:
-                for col in df.columns:
-                    if cand in col.lower().strip():
-                        detected_zoho = col
-                        break
-                if detected_zoho:
-                    break
+        detected_map: Dict[str, str] = {}
+        for key, cand_list in candidates.items():
+            matched = self._find_col(df.columns, cand_list)
+            detected_map[key] = matched or ""
 
-        if not detected_sap:
-            detected_sap = df.columns[0]
-        if not detected_zoho:
-            detected_zoho = df.columns[1] if len(df.columns) > 1 else df.columns[0]
+        # Si no detectó card_code, tomar la primera columna
+        if not detected_map["card_code"]:
+            detected_map["card_code"] = df.columns[0]
 
         self.dataframe = df
-        self.sap_col = detected_sap
-        self.zoho_col = detected_zoho
+        self.column_mapping = detected_map
 
-        return df, detected_sap, detected_zoho
+        # Actualizar banderas por defecto según las columnas detectadas
+        for k in self.update_flags:
+            self.update_flags[k] = bool(detected_map.get(k))
+
+        return df, detected_map
+
+    def _find_col(self, columns: List[str], candidates: List[str]) -> Optional[str]:
+        for cand in candidates:
+            for col in columns:
+                if cand == col.lower().strip():
+                    return col
+        for cand in candidates:
+            for col in columns:
+                if cand in col.lower().strip():
+                    return col
+        return None
 
     def stop(self):
         """Detiene la ejecución del bot de inmediato."""
@@ -147,83 +275,651 @@ class BotEngine:
     def is_paused(self) -> bool:
         return not self._pause_event.is_set()
 
+    def _clean_field_value(self, key: str, val: Any) -> str:
+        """
+        Modela y limpia los valores para evitar errores de guardado en SAP Business One.
+        SAP B1 rechaza campos numéricos o códigos con decimales (ej. '.0' proveniente de Excel).
+        - Para teléfono, móvil, WBCUSTID, RTN, ID dirección, código: elimina decimales conservando ceros a la izquierda.
+        - Para campo 'activo': normaliza a 'Y' o 'N'.
+        - Para texto libre (correo, calle, ciudad, etc.): elimina decimales residuales si son puramente numéricos terminados en .0.
+        """
+        if pd.isna(val) or val is None:
+            return ""
+        s = str(val).strip()
+        if not s or s.lower() == "nan":
+            return ""
+
+        # Manejo para estado Activo
+        if key == "activo":
+            if s.upper() in ["Y", "S", "SI", "1", "1.0", "TRUE", "T", "ACTIVO"]:
+                return "Y"
+            elif s.upper() in ["N", "NO", "0", "0.0", "FALSE", "F", "INACTIVO"]:
+                return "N"
+            return s
+
+        # Si termina en .0, .00, etc. (típico de lectura de enteros en Excel)
+        if re.match(r"^-?\d+\.0+$", s):
+            return s.split(".")[0]
+
+        # Manejo para campos de código o identificación donde los ceros a la izquierda son vitales (RTN, card_code, id_direccion)
+        if key in ["rtn", "card_code", "id_direccion"]:
+            if "." in s:
+                parts = s.split(".")
+                if parts[1].isdigit():
+                    return parts[0]
+            return s
+
+        # Manejo para números telefónicos y UDFs numéricos
+        if key in ["telefono", "movil", "wbcustid"]:
+            if "." in s:
+                parts = s.split(".")
+                if len(parts) == 2 and parts[1].isdigit():
+                    try:
+                        f = float(s)
+                        if s.startswith("0") and not s.startswith("0."):
+                            return parts[0]
+                        return str(int(round(f)))
+                    except Exception:
+                        return parts[0]
+            return s
+
+        return s
+
+    def _safe_click(self, coord: Optional[Tuple[int, int]], clicks: int = 1):
+        """Ejecuta clics virtuales precisos en Windows sin importar monitor ni posición negativa."""
+        if not coord:
+            return
+        x, y = int(coord[0]), int(coord[1])
+        win32api.SetCursorPos((x, y))
+        time.sleep(0.08)
+        for _ in range(clicks):
+            win32api.mouse_event(win32con.MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0)
+            time.sleep(0.05)
+            win32api.mouse_event(win32con.MOUSEEVENTF_LEFTUP, 0, 0, 0, 0)
+            if clicks > 1:
+                time.sleep(0.08)
+
     def _safe_paste(self, text: str):
-        """Copia texto al portapapeles y ejecuta Ctrl+V para evitar fallas de tipeo por latencia en RDP."""
+        """Copia texto al portapapeles y ejecuta Ctrl+V mediante Win32 puro para evitar pérdidas de foco en RDP."""
+        if text is None:
+            return
         pyperclip.copy(str(text))
         time.sleep(0.04)
-        pyautogui.hotkey("ctrl", "v")
+        sc_ctrl = win32api.MapVirtualKey(win32con.VK_CONTROL, 0)
+        sc_v = win32api.MapVirtualKey(ord('V'), 0)
+        win32api.keybd_event(win32con.VK_CONTROL, sc_ctrl, 0, 0)
+        time.sleep(0.02)
+        win32api.keybd_event(ord('V'), sc_v, 0, 0)
+        time.sleep(0.02)
+        win32api.keybd_event(ord('V'), sc_v, win32con.KEYEVENTF_KEYUP, 0)
+        time.sleep(0.02)
+        win32api.keybd_event(win32con.VK_CONTROL, sc_ctrl, win32con.KEYEVENTF_KEYUP, 0)
+        time.sleep(0.05)
 
-    def _prepare_target_window(self, on_countdown_tick: Optional[Callable[[int], None]] = None) -> Tuple[int, str]:
-        """Valida que SAP esté abierto y trae la ventana al frente con cuenta regresiva."""
+    def _select_all_in_field(self):
+        """
+        Selecciona todo el texto existente en el campo activo de SAP B1 de forma 100% segura.
+        Reglas críticas para SAP B1 en RDP:
+        1. NUNCA usar Ctrl+A porque en SAP B1 activa 'Añadir documento / Crear nuevo'.
+        2. NUNCA enviar 'Delete / Supr' sin flag extendida porque en RDP el teclado numérico envía puntos '.'
+        3. Usar END (extendido) para ir al final, seguido de Shift + HOME (extendido) para resaltar todo el texto.
+        4. Al pegar con Ctrl+V encima de la selección, el nuevo texto REEMPLAZA el anterior limpiamente.
+        """
+        sc_end = win32api.MapVirtualKey(win32con.VK_END, 0)
+        sc_home = win32api.MapVirtualKey(win32con.VK_HOME, 0)
+        sc_shift = win32api.MapVirtualKey(win32con.VK_SHIFT, 0)
+
+        # 1. Enviar END extendido para posicionarse al final del texto actual
+        win32api.keybd_event(win32con.VK_END, sc_end, win32con.KEYEVENTF_EXTENDEDKEY, 0)
+        time.sleep(0.02)
+        win32api.keybd_event(win32con.VK_END, sc_end, win32con.KEYEVENTF_EXTENDEDKEY | win32con.KEYEVENTF_KEYUP, 0)
+        time.sleep(0.03)
+
+        # 2. Shift + HOME extendido para seleccionar todo hacia el inicio
+        win32api.keybd_event(win32con.VK_SHIFT, sc_shift, 0, 0)
+        time.sleep(0.02)
+        win32api.keybd_event(win32con.VK_HOME, sc_home, win32con.KEYEVENTF_EXTENDEDKEY, 0)
+        time.sleep(0.02)
+        win32api.keybd_event(win32con.VK_HOME, sc_home, win32con.KEYEVENTF_EXTENDEDKEY | win32con.KEYEVENTF_KEYUP, 0)
+        time.sleep(0.02)
+        win32api.keybd_event(win32con.VK_SHIFT, sc_shift, win32con.KEYEVENTF_KEYUP, 0)
+        time.sleep(0.04)
+
+    def _write_field_value(self, coord: Optional[Tuple[int, int]], val: str, field_name: str = ""):
+        """
+        Escribe un valor en un campo de SAP Business One de forma 100% limpia y atómica:
+        1. Doble clic al campo para posicionarse y activar foco.
+        2. Selecciona todo el contenido existente con END + Shift+HOME.
+        3. Pega el valor nuevo reemplazando la selección con Ctrl+V.
+        """
+        if not coord or val is None or str(val).strip() == "":
+            return
+
+        # 1. Clic directo al campo
+        self._safe_click(coord, clicks=2)
+        time.sleep(0.10)
+
+        # 2. Resaltar todo el texto existente
+        self._select_all_in_field()
+        time.sleep(0.04)
+
+        # 3. Pegar el nuevo valor limpio sobre la selección
+        self._safe_paste(str(val).strip())
+        time.sleep(0.08)
+
+    def _press_enter(self):
+        """Presiona ENTER de forma robusta con Win32 y tiempo de retención para RDP."""
+        sc = win32api.MapVirtualKey(win32con.VK_RETURN, 0)
+        win32api.keybd_event(win32con.VK_RETURN, sc, 0, 0)
+        time.sleep(0.08)
+        win32api.keybd_event(win32con.VK_RETURN, sc, win32con.KEYEVENTF_KEYUP, 0)
+        time.sleep(0.04)
+
+    def _press_key(self, vk: int):
+        """Envía una pulsación de tecla virtual limpia."""
+        sc = win32api.MapVirtualKey(vk, 0)
+        win32api.keybd_event(vk, sc, 0, 0)
+        time.sleep(0.04)
+        win32api.keybd_event(vk, sc, win32con.KEYEVENTF_KEYUP, 0)
+        time.sleep(0.03)
+
+    def _press_ctrl_f(self):
+        """Presiona Ctrl+F para entrar a Modo Buscar en SAP B1."""
+        sc_ctrl = win32api.MapVirtualKey(win32con.VK_CONTROL, 0)
+        sc_f = win32api.MapVirtualKey(ord('F'), 0)
+        win32api.keybd_event(win32con.VK_CONTROL, sc_ctrl, 0, 0)
+        time.sleep(0.03)
+        win32api.keybd_event(ord('F'), sc_f, 0, 0)
+        time.sleep(0.03)
+        win32api.keybd_event(ord('F'), sc_f, win32con.KEYEVENTF_KEYUP, 0)
+        time.sleep(0.02)
+        win32api.keybd_event(win32con.VK_CONTROL, sc_ctrl, win32con.KEYEVENTF_KEYUP, 0)
+
+    def _press_ctrl_a(self):
+        """Presiona Ctrl+A para invocar 'Añadir / Crear nuevo' en SAP B1."""
+        sc_ctrl = win32api.MapVirtualKey(win32con.VK_CONTROL, 0)
+        sc_a = win32api.MapVirtualKey(ord('A'), 0)
+        win32api.keybd_event(win32con.VK_CONTROL, sc_ctrl, 0, 0)
+        time.sleep(0.03)
+        win32api.keybd_event(ord('A'), sc_a, 0, 0)
+        time.sleep(0.03)
+        win32api.keybd_event(ord('A'), sc_a, win32con.KEYEVENTF_KEYUP, 0)
+        time.sleep(0.02)
+        win32api.keybd_event(win32con.VK_CONTROL, sc_ctrl, win32con.KEYEVENTF_KEYUP, 0)
+
+    def _press_alt_a(self):
+        """Presiona Alt+A para Guardar/Actualizar en SAP B1."""
+        sc_menu = win32api.MapVirtualKey(win32con.VK_MENU, 0)
+        sc_a = win32api.MapVirtualKey(ord('A'), 0)
+        win32api.keybd_event(win32con.VK_MENU, sc_menu, 0, 0)
+        time.sleep(0.03)
+        win32api.keybd_event(ord('A'), sc_a, 0, 0)
+        time.sleep(0.03)
+        win32api.keybd_event(ord('A'), sc_a, win32con.KEYEVENTF_KEYUP, 0)
+        time.sleep(0.02)
+        win32api.keybd_event(win32con.VK_MENU, sc_menu, win32con.KEYEVENTF_KEYUP, 0)
+
+    def _start_esc_listener(self):
+        """Monitorea globalmente F8, Pausa o ESC para pausar/reanudar el bot sin cerrar SAP."""
+        def _esc_loop():
+            while self.is_running:
+                try:
+                    f8_pressed = bool(win32api.GetAsyncKeyState(win32con.VK_F8) & 0x8000)
+                    pause_pressed = bool(win32api.GetAsyncKeyState(win32con.VK_PAUSE) & 0x8000)
+                    esc_pressed = bool(win32api.GetAsyncKeyState(win32con.VK_ESCAPE) & 0x8000)
+
+                    if f8_pressed or pause_pressed or esc_pressed:
+                        time.sleep(0.35)
+                        if self.is_paused():
+                            self.resume()
+                            if self.on_pause_callback:
+                                self.on_pause_callback(False)
+                        else:
+                            self.pause()
+                            if self.on_pause_callback:
+                                self.on_pause_callback(True)
+                except Exception:
+                    pass
+                time.sleep(0.05)
+
+        t = threading.Thread(target=_esc_loop, daemon=True)
+        t.start()
+
+    def _check_pause(self):
+        """Pausa la ejecución si se activó la pausa con F8, ESC o botón."""
+        while not self._pause_event.is_set():
+            time.sleep(0.15)
+            if self._stop_event.is_set():
+                break
+
+    def _detect_sap_popup(self) -> Optional[Tuple[int, str]]:
+        """Detecta si hay un cuadro de diálogo emergente o mensaje de error de SAP Business One."""
+        found = []
+        def enum_cb(hwnd, _):
+            if win32gui.IsWindowVisible(hwnd):
+                cls = win32gui.GetClassName(hwnd)
+                txt = win32gui.GetWindowText(hwnd).strip()
+                if cls == "#32770" or "sap business one" in txt.lower():
+                    rect = win32gui.GetWindowRect(hwnd)
+                    w = rect[2] - rect[0]
+                    h = rect[3] - rect[1]
+                    if 40 < w < 850 and 40 < h < 600:
+                        found.append((hwnd, txt))
+            return True
+        try:
+            win32gui.EnumWindows(enum_cb, None)
+        except Exception:
+            pass
+        return found[0] if found else None
+
+    def _recover_and_reset_to_search(self):
+        """
+        Protocolo de auto-recuperación ante errores al Actualizar en SAP Business One:
+        1. Cierra posibles popups de error emergentes con Enter o Escape.
+        2. Selecciona el botón 'Crear cliente / Añadir' en la barra superior (o Ctrl+A).
+        3. Si SAP muestra cuadro de confirmación ('¿Desea descartar los cambios y crear nuevo?'),
+           selecciona el botón de confirmación calibrado o presiona Enter para descartar.
+        4. Selecciona el botón 'Buscar' (Lupa en barra superior o Ctrl+F).
+        5. Con esto la pantalla queda completamente limpia en Modo Buscar para pasar al siguiente cliente.
+        """
+        btn_crear = self.config.get("btn_crear_coord")
+        btn_confirmar = self.config.get("btn_confirmar_crear_coord")
+        btn_buscar = self.config.get("btn_buscar_coord")
+
+        # 1. Cerrar posibles popups de alerta
+        self._press_key(win32con.VK_ESCAPE)
+        time.sleep(0.15)
+        self._press_enter()
+        time.sleep(0.20)
+
+        # 2. Clic en 'Crear / Añadir'
+        if btn_crear:
+            self._safe_click(btn_crear)
+        else:
+            self._press_ctrl_a()
+        time.sleep(0.40)
+
+        # 3. Confirmar 'Crear nuevo' / Descartar modificaciones no guardadas
+        if btn_confirmar:
+            self._safe_click(btn_confirmar)
+            time.sleep(0.25)
+        else:
+            self._press_enter()
+            time.sleep(0.25)
+
+        # 4. Clic en 'Buscar' (Lupa)
+        if btn_buscar:
+            self._safe_click(btn_buscar)
+        else:
+            self._press_ctrl_f()
+        time.sleep(0.50)
+
+    def _process_single_client(self, row_data: Dict[str, str]) -> List[str]:
+        """
+        Ejecuta el ciclo de actualización de un socio de negocio individual con precisión:
+        1. Clic en botón Buscar (Lupa barra SAP).
+        2. Clic en campo 'Código', selecciona y pega el código de cliente.
+        3. Clic en botón inferior 'Buscar / Actualizar' para disparar la búsqueda en SAP.
+        4. Actualiza campos de Cabecera y pestaña General (RTN, Teléfono, Móvil, Correo, Activo, WBCUSTID, SyncFlag).
+        5. Actualiza campos de pestaña Direcciones (ID de dirección, Calle/Número, Ciudad, Indicador de impuestos).
+        6. Clic en botón inferior 'Actualizar' (guardar).
+        7. Si ocurre error al actualizar, ejecuta auto-recuperación (Crear ➔ Descartar ➔ Buscar).
+        """
+        btn_buscar = self.config.get("btn_buscar_coord")
+        card_coord = self.config.get("card_code_coord")
+        btn_actualizar = self.config.get("btn_actualizar_coord")
+        tab_general = self.config.get("tab_general_coord")
+        tab_dir = self.config.get("tab_direcciones_coord")
+
+        rtn_coord = self.config.get("rtn_coord")
+        tel_coord = self.config.get("telefono_coord")
+        movil_coord = self.config.get("movil_coord")
+        correo_coord = self.config.get("correo_coord")
+        activo_coord = self.config.get("activo_coord")
+        wb_coord = self.config.get("wbcustid_coord")
+        sync_coord = self.config.get("syncflag_coord")
+
+        id_dir_coord = self.config.get("id_direccion_coord")
+        calle_coord = self.config.get("calle_numero_coord")
+        ciudad_coord = self.config.get("ciudad_coord")
+        imp_coord = self.config.get("indicador_impuestos_coord")
+
+        # Limpiar y modelar valores sin decimales no deseados
+        card_code = self._clean_field_value("card_code", row_data.get("card_code", ""))
+        rtn_val = self._clean_field_value("rtn", row_data.get("rtn", ""))
+        tel_val = self._clean_field_value("telefono", row_data.get("telefono", ""))
+        movil_val = self._clean_field_value("movil", row_data.get("movil", ""))
+        correo_val = self._clean_field_value("correo", row_data.get("correo", ""))
+        activo_val = self._clean_field_value("activo", row_data.get("activo", ""))
+        wb_val = self._clean_field_value("wbcustid", row_data.get("wbcustid", ""))
+        sync_val = self._clean_field_value("syncflag", row_data.get("syncflag", "")) or "T"
+
+        id_dir_val = self._clean_field_value("id_direccion", row_data.get("id_direccion", ""))
+        calle_val = self._clean_field_value("calle_numero", row_data.get("calle_numero", ""))
+        ciudad_val = self._clean_field_value("ciudad", row_data.get("ciudad", ""))
+        imp_val = self._clean_field_value("indicador_impuestos", row_data.get("indicador_impuestos", ""))
+
+        self._check_pause()
+
+        # Si había quedado un popup previo o pantalla sucia, auto-recuperar
+        popup_prev = self._detect_sap_popup()
+        if popup_prev:
+            self._recover_and_reset_to_search()
+
+        # ========================================================
+        # PASO 1: Garantizar Modo Buscar en SAP
+        # ========================================================
+        if btn_buscar:
+            self._safe_click(btn_buscar)
+        else:
+            self._press_ctrl_f()
+        time.sleep(self.config.get("delay_after_find", 0.45))
+
+        # Verificar si al dar clic en Buscar apareció diálogo de "¿Desea guardar cambios?"
+        popup_search = self._detect_sap_popup()
+        if popup_search:
+            self._recover_and_reset_to_search()
+
+        self._check_pause()
+
+        # ========================================================
+        # PASO 2: Clic en campo 'Código de Cliente' y buscar
+        # ========================================================
+        if card_coord:
+            self._safe_click(card_coord, clicks=2)
+            time.sleep(0.10)
+
+        # Seleccionar texto previo limpiamente (sin Delete para no escribir puntos)
+        self._select_all_in_field()
+        time.sleep(0.04)
+
+        # Pegar el código del cliente
+        self._safe_paste(card_code)
+        time.sleep(0.15)
+
+        # Ejecutar Búsqueda haciendo clic en el botón inferior 'Buscar'
+        if btn_actualizar:
+            self._safe_click(btn_actualizar)
+        else:
+            self._press_enter()
+
+        time.sleep(self.config.get("delay_after_search", 1.0))
+        self._check_pause()
+
+        actualizados = []
+
+        # ========================================================
+        # PASO 3: Cabecera y Pestaña General
+        # ========================================================
+        # A) RTN en Cabecera
+        if self.update_flags.get("rtn") and rtn_val and rtn_coord:
+            self._check_pause()
+            self._write_field_value(rtn_coord, rtn_val, "RTN")
+            actualizados.append(f"RTN={rtn_val}")
+            time.sleep(self.config.get("delay_between_fields", 0.22))
+
+        # B) Campos dentro de Pestaña General
+        has_general_fields = (
+            (self.update_flags.get("telefono") and tel_val and tel_coord) or
+            (self.update_flags.get("movil") and movil_val and movil_coord) or
+            (self.update_flags.get("correo") and correo_val and correo_coord) or
+            (self.update_flags.get("activo") and activo_val and activo_coord)
+        )
+
+        if has_general_fields and tab_general:
+            self._check_pause()
+            self._safe_click(tab_general)
+            time.sleep(self.config.get("delay_after_tab_click", 0.35))
+
+        if self.update_flags.get("telefono") and tel_val and tel_coord:
+            self._check_pause()
+            self._write_field_value(tel_coord, tel_val, "Teléfono")
+            actualizados.append(f"Tel={tel_val}")
+            time.sleep(self.config.get("delay_between_fields", 0.22))
+
+        if self.update_flags.get("movil") and movil_val and movil_coord:
+            self._check_pause()
+            self._write_field_value(movil_coord, movil_val, "Móvil")
+            actualizados.append(f"Móvil={movil_val}")
+            time.sleep(self.config.get("delay_between_fields", 0.22))
+
+        if self.update_flags.get("correo") and correo_val and correo_coord:
+            self._check_pause()
+            self._write_field_value(correo_coord, correo_val, "Correo")
+            actualizados.append(f"Correo={correo_val}")
+            time.sleep(self.config.get("delay_between_fields", 0.22))
+
+        if self.update_flags.get("activo") and activo_val and activo_coord:
+            self._check_pause()
+            if activo_val.upper() in ["Y", "S", "SI", "1", "TRUE", "T", "ACTIVO"]:
+                self._safe_click(activo_coord)
+                actualizados.append("Activo=Sí")
+                time.sleep(self.config.get("delay_between_fields", 0.22))
+
+        # C) Campos de Barra Lateral UDF (WBCUSTID, SyncFlag)
+        if self.update_flags.get("wbcustid") and wb_val and wb_coord:
+            self._check_pause()
+            self._write_field_value(wb_coord, wb_val, "WBCUSTID")
+            actualizados.append(f"WBCUSTID={wb_val}")
+            time.sleep(self.config.get("delay_between_fields", 0.22))
+
+        if self.update_flags.get("syncflag") and sync_val and sync_coord:
+            self._check_pause()
+            self._write_field_value(sync_coord, sync_val, "SyncFlag")
+            actualizados.append(f"SyncFlag={sync_val}")
+            time.sleep(self.config.get("delay_between_fields", 0.22))
+
+        # ========================================================
+        # PASO 4: Pestaña Direcciones
+        # ========================================================
+        has_dir_fields = (
+            (self.update_flags.get("id_direccion") and id_dir_val and id_dir_coord) or
+            (self.update_flags.get("calle_numero") and calle_val and calle_coord) or
+            (self.update_flags.get("ciudad") and ciudad_val and ciudad_coord) or
+            (self.update_flags.get("indicador_impuestos") and imp_val and imp_coord)
+        )
+
+        if has_dir_fields and tab_dir:
+            self._check_pause()
+            self._safe_click(tab_dir)
+            time.sleep(self.config.get("delay_after_tab_click", 0.40))
+
+        if self.update_flags.get("id_direccion") and id_dir_val and id_dir_coord:
+            self._check_pause()
+            self._write_field_value(id_dir_coord, id_dir_val, "ID Dirección")
+            actualizados.append(f"ID_Dir={id_dir_val}")
+            time.sleep(self.config.get("delay_between_fields", 0.22))
+
+        if self.update_flags.get("calle_numero") and calle_val and calle_coord:
+            self._check_pause()
+            self._write_field_value(calle_coord, calle_val, "Calle/Número")
+            actualizados.append(f"Calle={calle_val}")
+            time.sleep(self.config.get("delay_between_fields", 0.22))
+
+        if self.update_flags.get("ciudad") and ciudad_val and ciudad_coord:
+            self._check_pause()
+            self._write_field_value(ciudad_coord, ciudad_val, "Ciudad")
+            actualizados.append(f"Ciudad={ciudad_val}")
+            time.sleep(self.config.get("delay_between_fields", 0.22))
+
+        if self.update_flags.get("indicador_impuestos") and imp_val and imp_coord:
+            self._check_pause()
+            self._write_field_value(imp_coord, imp_val, "Impuestos")
+            actualizados.append(f"Imp={imp_val}")
+            time.sleep(self.config.get("delay_between_fields", 0.22))
+
+        self._check_pause()
+
+        # ========================================================
+        # PASO 5: Guardar con "Actualizar"
+        # ========================================================
+        if btn_actualizar:
+            self._safe_click(btn_actualizar)
+        else:
+            self._press_alt_a()
+
+        time.sleep(self.config.get("delay_after_save", 0.85))
+
+        # ========================================================
+        # PASO 6: Verificación de Error al Actualizar
+        # ========================================================
+        popup = self._detect_sap_popup()
+        if popup:
+            _, popup_text = popup
+            if self.config.get("auto_recover_on_error", True):
+                self._recover_and_reset_to_search()
+            raise Exception(f"SAP rechazó la actualización ({popup_text}). Pantalla restablecida limpiamente.")
+
+        return actualizados
+
+    def run_single_test_client(
+        self,
+        client_index: int = 0,
+        on_countdown_tick: Optional[Callable[[int], None]] = None,
+    ) -> Dict[str, Any]:
+        """
+        Ejecuta la actualización de UN SOLO socio de negocio para pruebas.
+        """
+        self._stop_event.clear()
+        self._pause_event.set()
+        self.is_running = True
+        self._start_esc_listener()
+
+        df = self.dataframe
+        mapping = self.column_mapping
+
+        if df is None or not mapping.get("card_code") or mapping["card_code"] not in df.columns:
+            raise ValueError("No hay un archivo cargado con columna válida de Código de Cliente.")
+
+        valid_rows = []
+        for idx, row in df.iterrows():
+            raw_code = row[mapping["card_code"]] if pd.notna(row[mapping["card_code"]]) else ""
+            code = self._clean_field_value("card_code", raw_code)
+            if code and code.lower() != "nan":
+                row_data = {"card_code": code}
+                for k, col_name in mapping.items():
+                    if k != "card_code" and col_name and col_name in df.columns and pd.notna(row[col_name]):
+                        row_data[k] = self._clean_field_value(k, row[col_name])
+                    elif k != "card_code":
+                        row_data[k] = ""
+                valid_rows.append((idx, row_data))
+
+        if not valid_rows:
+            raise ValueError("No se encontraron registros de clientes válidos en el archivo.")
+
+        target_row = valid_rows[min(client_index, len(valid_rows) - 1)]
+        row_idx, row_data = target_row
+
+        # Enfocar ventana SAP
         target_window = window_manager.find_target_window(self.config.get("custom_window_title"))
         if not target_window:
             raise SAPWindowNotFoundError(
-                "No se detectó la ventana de SAP Business One ni la sesión de Escritorio Remoto abierta.\n\n"
-                "Por favor verifica:\n"
-                "1. Que el Escritorio Remoto (182.160.29.90) esté abierto y conectado.\n"
-                "2. Que hayas iniciado sesión con tu usuario en SAP Business One.\n"
-                "3. Que la ventana 'Datos maestros de socio de negocios' esté visible."
+                "No se detectó la ventana de SAP Business One ni la sesión de Escritorio Remoto abierta."
             )
+        hwnd, _ = target_window
+        window_manager.bring_window_to_front(hwnd)
 
-        hwnd, title = target_window
-
-        if not window_manager.bring_window_to_front(hwnd):
-            raise Exception(f"No fue posible traer al frente la ventana: '{title}'")
-
+        # Cuenta regresiva
         countdown = self.config.get("countdown_seconds", 3)
         for sec in range(countdown, 0, -1):
-            if self._stop_event.is_set():
-                raise KeyboardInterrupt("Proceso cancelado por el usuario")
             if on_countdown_tick:
                 on_countdown_tick(sec)
             time.sleep(1.0)
-
         if on_countdown_tick:
             on_countdown_tick(0)
 
         window_manager.bring_window_to_front(hwnd)
         time.sleep(0.3)
-        return hwnd, title
 
-    # =========================================================================
-    # MODO 1: SINCRONIZACIÓN ZOHO (WBCUSTID + SyncFlag = 'T')
-    # =========================================================================
+        actualizados = self._process_single_client(row_data)
+        self.is_running = False
 
-    def run_sync(
+        return {
+            "row_idx": row_idx,
+            "card_code": row_data["card_code"],
+            "row_data": row_data,
+            "actualizados": actualizados,
+        }
+
+    def run_update_clients(
         self,
         progress_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
         on_countdown_tick: Optional[Callable[[int], None]] = None,
         completion_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
     ):
-        """Ejecuta el ciclo de sincronización de IDs y banderas."""
+        """
+        Ejecuta el ciclo de actualización masivo para todos los clientes respetando
+        únicamente los campos mapeados y activados por el usuario.
+        """
         self._stop_event.clear()
         self._pause_event.set()
         self.is_running = True
+        self._start_esc_listener()
 
-        stats = {"total": 0, "processed": 0, "success": 0, "failed": 0, "aborted": False, "error_msg": None}
+        stats = {
+            "total": 0,
+            "processed": 0,
+            "success": 0,
+            "failed": 0,
+            "aborted": False,
+            "error_msg": None,
+        }
 
         try:
-            hwnd, title = self._prepare_target_window(on_countdown_tick)
+            # 1. Validar ventana de SAP
+            target_window = window_manager.find_target_window(self.config.get("custom_window_title"))
+            if not target_window:
+                raise SAPWindowNotFoundError(
+                    "No se detectó la ventana de SAP Business One ni la sesión de Escritorio Remoto abierta.\n\n"
+                    "Por favor verifica:\n"
+                    "1. Que el Escritorio Remoto esté abierto y conectado.\n"
+                    "2. Que hayas iniciado sesión en SAP Business One.\n"
+                    "3. Que la ventana 'Datos maestros socio de negocios' esté abierta."
+                )
+
+            hwnd, title = target_window
+            if not window_manager.bring_window_to_front(hwnd):
+                raise Exception(f"No fue posible enfocar la ventana: '{title}'")
+
+            # 2. Cuenta regresiva para dar foco
+            countdown = self.config.get("countdown_seconds", 3)
+            for sec in range(countdown, 0, -1):
+                if self._stop_event.is_set():
+                    stats["aborted"] = True
+                    return
+                if on_countdown_tick:
+                    on_countdown_tick(sec)
+                time.sleep(1.0)
+
+            if on_countdown_tick:
+                on_countdown_tick(0)
+
+            window_manager.bring_window_to_front(hwnd)
+            time.sleep(0.3)
 
             df = self.dataframe
-            sap_col = self.sap_col
-            zoho_col = self.zoho_col
+            mapping = self.column_mapping
 
-            if df is None or sap_col not in df.columns or zoho_col not in df.columns:
-                raise ValueError("El archivo de datos no ha sido cargado o las columnas no son válidas.")
+            if df is None or not mapping.get("card_code") or mapping["card_code"] not in df.columns:
+                raise ValueError("El archivo cargado no contiene una columna válida de Código de Cliente.")
 
+            # Filtrar filas válidas
             valid_rows = []
             for idx, row in df.iterrows():
-                sap_val = str(row[sap_col]).strip() if pd.notna(row[sap_col]) else ""
-                zoho_val = str(row[zoho_col]).strip() if pd.notna(row[zoho_col]) else ""
-                if zoho_val.endswith(".0"):
-                    zoho_val = zoho_val[:-2]
-                if sap_val and sap_val.lower() != "nan" and zoho_val and zoho_val.lower() != "nan":
-                    valid_rows.append((idx, sap_val, zoho_val))
+                raw_code = row[mapping["card_code"]] if pd.notna(row[mapping["card_code"]]) else ""
+                code = self._clean_field_value("card_code", raw_code)
+                if code and code.lower() != "nan":
+                    row_data = {"card_code": code}
+                    for k, col_name in mapping.items():
+                        if k != "card_code" and col_name and col_name in df.columns and pd.notna(row[col_name]):
+                            row_data[k] = self._clean_field_value(k, row[col_name])
+                        elif k != "card_code":
+                            row_data[k] = ""
+                    valid_rows.append((idx, row_data))
 
             stats["total"] = len(valid_rows)
 
-            for item_num, (row_idx, card_code, zoho_id) in enumerate(valid_rows, start=1):
+            for item_num, (row_idx, row_data) in enumerate(valid_rows, start=1):
                 if self._stop_event.is_set():
                     stats["aborted"] = True
                     break
@@ -235,6 +931,8 @@ class BotEngine:
                         break
                 if stats["aborted"]:
                     break
+
+                card_code = row_data["card_code"]
 
                 if progress_callback:
                     progress_callback({
@@ -242,247 +940,47 @@ class BotEngine:
                         "total": len(valid_rows),
                         "row_idx": row_idx,
                         "card_code": card_code,
-                        "zoho_id": zoho_id,
-                        "syncflag": self.config.get("syncflag_value", "T"),
+                        "row_data": row_data,
                         "status": "PROCESANDO",
-                        "message": "Buscando cliente en SAP...",
-                    })
-
-                try:
-                    # 1. Modo Buscar en SAP
-                    pyautogui.hotkey("ctrl", "f")
-                    time.sleep(self.config.get("delay_after_find", 0.4))
-
-                    # 2. Digitar Código de Cliente + Enter
-                    self._safe_paste(card_code)
-                    time.sleep(0.1)
-                    pyautogui.press("enter")
-                    time.sleep(self.config.get("delay_after_search", 0.9))
-
-                    # 3. Posicionarse en WBCUSTID y pegar
-                    zoho_coord = self.config.get("zoho_field_coord")
-                    if zoho_coord:
-                        pyautogui.click(zoho_coord[0], zoho_coord[1])
-                        time.sleep(self.config.get("delay_after_field_focus", 0.2))
-                    else:
-                        pyautogui.press("tab")
-                        time.sleep(0.1)
-
-                    pyautogui.hotkey("ctrl", "a")
-                    time.sleep(0.04)
-                    self._safe_paste(zoho_id)
-                    time.sleep(self.config.get("delay_between_fields", 0.2))
-
-                    # 4. Posicionarse en SyncFlag y poner 'T'
-                    if self.config.get("update_syncflag", True):
-                        sync_mode = self.config.get("syncflag_mode", "tab")
-                        sync_coord = self.config.get("syncflag_coord")
-                        tab_count = self.config.get("syncflag_tab_count", 1)
-
-                        if sync_mode == "click" and sync_coord:
-                            pyautogui.click(sync_coord[0], sync_coord[1])
-                            time.sleep(0.15)
-                        else:
-                            for _ in range(max(1, tab_count)):
-                                pyautogui.press("tab")
-                                time.sleep(0.06)
-
-                        pyautogui.hotkey("ctrl", "a")
-                        time.sleep(0.04)
-                        flag_val = str(self.config.get("syncflag_value", "T"))
-                        self._safe_paste(flag_val)
-                        time.sleep(0.15)
-
-                    # 5. Guardar / Actualizar
-                    action_save = self.config.get("action_save", "alt_a")
-                    save_coord = self.config.get("save_btn_coord")
-
-                    if action_save == "click" and save_coord:
-                        pyautogui.click(save_coord[0], save_coord[1])
-                    elif action_save == "enter":
-                        pyautogui.press("enter")
-                    else:
-                        pyautogui.hotkey("alt", "a")
-
-                    time.sleep(self.config.get("delay_after_save", 0.7))
-
-                    stats["processed"] += 1
-                    stats["success"] += 1
-
-                    if progress_callback:
-                        progress_callback({
-                            "index": item_num,
-                            "total": len(valid_rows),
-                            "row_idx": row_idx,
-                            "card_code": card_code,
-                            "zoho_id": zoho_id,
-                            "syncflag": self.config.get("syncflag_value", "T"),
-                            "status": "OK",
-                            "message": f"WBCUSTID={zoho_id} | SyncFlag='T' guardados",
-                        })
-
-                except Exception as row_err:
-                    stats["processed"] += 1
-                    stats["failed"] += 1
-                    if progress_callback:
-                        progress_callback({
-                            "index": item_num,
-                            "total": len(valid_rows),
-                            "row_idx": row_idx,
-                            "card_code": card_code,
-                            "zoho_id": zoho_id,
-                            "syncflag": self.config.get("syncflag_value", "T"),
-                            "status": "ERROR",
-                            "message": str(row_err),
-                        })
-
-        except Exception as e:
-            stats["error_msg"] = str(e)
-            stats["aborted"] = True
-            raise e
-        finally:
-            self.is_running = False
-            if completion_callback:
-                completion_callback(stats)
-
-    # =========================================================================
-    # MODO 2: ELIMINACIÓN MASIVA DE CLIENTES DUPLICADOS EN SAP B1
-    # =========================================================================
-
-    def run_delete_clients(
-        self,
-        progress_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
-        on_countdown_tick: Optional[Callable[[int], None]] = None,
-        completion_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
-    ):
-        """
-        Ejecuta el ciclo de eliminación masiva en SAP B1.
-        Para cada cliente:
-          1. Modo Buscar en SAP (Ctrl + F)
-          2. Digitar Código de Cliente + Enter
-          3. Clic derecho en formulario / Menú Datos -> Eliminar
-          4. Confirmar diálogo "¿Desea eliminar el socio de negocios?" con Enter / Alt+S
-          5. Descartar avisos de bloqueo si tuviera transacciones
-        """
-        self._stop_event.clear()
-        self._pause_event.set()
-        self.is_running = True
-
-        stats = {
-            "total": 0,
-            "processed": 0,
-            "deleted": 0,
-            "skipped_or_locked": 0,
-            "failed": 0,
-            "aborted": False,
-            "error_msg": None,
-        }
-
-        try:
-            hwnd, title = self._prepare_target_window(on_countdown_tick)
-
-            df = self.dataframe
-            sap_col = self.sap_col
-
-            if df is None or sap_col not in df.columns:
-                raise ValueError("El archivo de clientes a eliminar no ha sido cargado correctamente.")
-
-            # Extraer lista de códigos únicos a eliminar
-            client_codes = []
-            for idx, row in df.iterrows():
-                val = str(row[sap_col]).strip() if pd.notna(row[sap_col]) else ""
-                if val and val.lower() != "nan" and val not in [c[1] for c in client_codes]:
-                    client_codes.append((idx, val))
-
-            stats["total"] = len(client_codes)
-
-            for item_num, (row_idx, card_code) in enumerate(client_codes, start=1):
-                if self._stop_event.is_set():
-                    stats["aborted"] = True
-                    break
-
-                while not self._pause_event.is_set():
-                    time.sleep(0.2)
-                    if self._stop_event.is_set():
-                        stats["aborted"] = True
-                        break
-                if stats["aborted"]:
-                    break
-
-                if progress_callback:
-                    progress_callback({
-                        "index": item_num,
-                        "total": len(client_codes),
-                        "row_idx": row_idx,
-                        "card_code": card_code,
-                        "status": "BUSCANDO",
                         "message": f"Buscando cliente {card_code} en SAP...",
                     })
 
                 try:
-                    # PASO 1: Modo Buscar en SAP (Ctrl + F)
-                    pyautogui.hotkey("ctrl", "f")
-                    time.sleep(self.config.get("delay_after_find", 0.4))
-
-                    # PASO 2: Digitar Código + Enter
-                    self._safe_paste(card_code)
-                    time.sleep(0.1)
-                    pyautogui.press("enter")
-                    time.sleep(self.config.get("delay_after_search", 0.9))
-
-                    # PASO 3: Invocar acción "Eliminar"
-                    delete_method = self.config.get("delete_method", "menu_alt_d")
-                    right_click_coord = self.config.get("delete_click_coord")
-
-                    if delete_method == "right_click" and right_click_coord:
-                        # Clic derecho en la cabecera del socio de negocios
-                        pyautogui.rightClick(right_click_coord[0], right_click_coord[1])
-                        time.sleep(0.3)
-                        # En el menú contextual de SAP B1 en español, 'e' activa "Eliminar"
-                        pyautogui.press("e")
-                    else:
-                        # Método estándar por barra de menú SAP B1: Datos (Alt + D) -> Eliminar (e)
-                        pyautogui.hotkey("alt", "d")
-                        time.sleep(0.3)
-                        pyautogui.press("e")
-
-                    time.sleep(self.config.get("delay_after_delete_action", 0.5))
-
-                    # PASO 4: Confirmar la ventana emergente de SAP ("¿Desea eliminar?")
-                    pyautogui.press("enter")
-                    time.sleep(self.config.get("delay_after_confirm_delete", 0.8))
-
-                    # PASO 5: Descarte de avisos de error/bloqueo de SAP (ej. ligado a Cotización o Ventas)
-                    # Si el socio tiene cotizaciones (OQUT) o ventas, SAP abre un modal de advertencia:
-                    # "No se puede eliminar el socio de negocios; existen operaciones vinculadas"
-                    # Pulsamos Enter y luego Escape para limpiar cualquier modal y dejar SAP listo para el siguiente
-                    pyautogui.press("enter")
-                    time.sleep(0.15)
-                    pyautogui.press("escape")
-                    time.sleep(0.2)
+                    actualizados = self._process_single_client(row_data)
 
                     stats["processed"] += 1
-                    stats["deleted"] += 1
+                    stats["success"] += 1
 
+                    detalle_str = ", ".join(actualizados) if actualizados else "Sin cambios"
                     if progress_callback:
                         progress_callback({
                             "index": item_num,
-                            "total": len(client_codes),
+                            "total": len(valid_rows),
                             "row_idx": row_idx,
                             "card_code": card_code,
-                            "status": "PROCESADO",
-                            "message": "Orden de eliminación enviada a SAP (si tiene coti/ventas, SAP lo protege)",
+                            "row_data": row_data,
+                            "status": "OK",
+                            "message": f"Actualizado exitosamente ({detalle_str})",
                         })
 
                 except Exception as row_err:
                     stats["processed"] += 1
                     stats["failed"] += 1
+
+                    # Si ocurrió un error en la fila y auto_recover está activo, limpiar pantalla
+                    if self.config.get("auto_recover_on_error", True):
+                        try:
+                            self._recover_and_reset_to_search()
+                        except Exception:
+                            pass
+
                     if progress_callback:
                         progress_callback({
                             "index": item_num,
-                            "total": len(client_codes),
+                            "total": len(valid_rows),
                             "row_idx": row_idx,
                             "card_code": card_code,
+                            "row_data": row_data,
                             "status": "ERROR",
                             "message": str(row_err),
                         })
