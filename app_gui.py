@@ -487,6 +487,13 @@ class BotClientesApp:
         self._build_calib_row(tab_nav, "menu_copiar_error", "📋 7. Opción 'Copiar' (Menú clic derecho)", "tab_general", "📑 8. Pestaña 'General'")
         self._build_calib_row(tab_nav, "tab_direcciones", "📑 9. Pestaña 'Direcciones'", None, None)
 
+        btn_wiz_nav = ttk.Button(
+            tab_nav,
+            text="🚀 Asistente: Calibrar Navegación y Control (en secuencia)",
+            command=lambda: self.start_wizard_calibration("navegacion")
+        )
+        btn_wiz_nav.pack(anchor=tk.W, pady=(4, 0))
+
         # Pestaña B: Cabecera y General
         tab_gen = ttk.Frame(nb_calib, padding="6")
         nb_calib.add(tab_gen, text=" 📋 Cabecera, General y UDF ")
@@ -496,6 +503,13 @@ class BotClientesApp:
         self._build_calib_row(tab_gen, "activo", "🔘 12. Radio button 'Activo' (General)", "wbcustid", "🏷️ 13. Campo 'WBCUSTID' (UDF)")
         self._build_calib_row(tab_gen, "syncflag", "🚩 14. Campo 'SyncFlag' (UDF)", None, None)
 
+        btn_wiz_gen = ttk.Button(
+            tab_gen,
+            text="🚀 Asistente: Calibrar Cabecera, General y UDF (en secuencia)",
+            command=lambda: self.start_wizard_calibration("general")
+        )
+        btn_wiz_gen.pack(anchor=tk.W, pady=(4, 0))
+
         # Pestaña C: Direcciones (Destinatario ➔ Copiar >> ➔ Destino)
         tab_dir = ttk.Frame(nb_calib, padding="6")
         nb_calib.add(tab_dir, text=" 📍 Pestaña Direcciones ")
@@ -503,6 +517,13 @@ class BotClientesApp:
         self._build_calib_row(tab_dir, "definir_nuevo_factura", "📄 15. 'Definir nuevo' (Factura)", "id_direccion", "📍 16. Campo 'ID de Dirección'")
         self._build_calib_row(tab_dir, "calle_numero", "🏠 17. Campo 'Calle/ Número'", "ciudad", "🏙️ 18. Campo 'Ciudad'")
         self._build_calib_row(tab_dir, "btn_copiar_direccion", "⏩ 19. Botón 'Copiar >>' (a Destino)", "indicador_impuestos", "🏷️ 20. Campo 'Impuestos' (en Destino)")
+
+        btn_wiz_dir = ttk.Button(
+            tab_dir,
+            text="🚀 Asistente: Calibrar Pestaña Direcciones (en secuencia)",
+            command=lambda: self.start_wizard_calibration("direcciones")
+        )
+        btn_wiz_dir.pack(anchor=tk.W, pady=(4, 0))
 
         # Barra inferior de calibración
         calib_bottom = ttk.Frame(calib_card)
@@ -758,14 +779,31 @@ class BotClientesApp:
         calib_win.attributes("-topmost", True)
         calib_win.resizable(False, False)
 
-        if target_point == "barra_estado":
-            hint = "Coloca el puntero del mouse sobre la barra de estado inferior de SAP\n(donde aparecen los mensajes en rojo o verde)..."
-        elif target_point == "menu_copiar_error":
-            hint = "Haz clic DERECHO en la barra de estado y coloca el puntero\nsobre la opción 'Copiar' / 'Copiar mensaje de error' del menú..."
-        elif target_point == "btn_confirmar_crear":
-            hint = "Coloca el puntero sobre el botón 'Sí' / 'OK' del cuadro de diálogo\nque aparece al cambiar de registro o descartar cambios..."
-        else:
-            hint = f"Coloca el puntero del mouse exactamente sobre:\n'{label_name}' en tu SAP..."
+        hints = {
+            "btn_buscar": "🔍 Coloca el puntero sobre el botón 'Buscar'\n(icono de Lupa en la barra superior de SAP)...",
+            "btn_crear": "➕ Coloca el puntero sobre el botón 'Crear / Añadir'\n(icono de hoja con signo + en barra de SAP)...",
+            "btn_confirmar_crear": "✅ Coloca el puntero sobre el botón 'Sí' / 'OK'\ndel cuadro de diálogo que aparece al descartar cambios...",
+            "card_code": "📝 Coloca el puntero sobre la casilla 'Código'\n(Código del Cliente en la cabecera de SAP)...",
+            "btn_actualizar": "💾 Coloca el puntero sobre el botón 'Buscar / Actualizar'\n(esquina inferior izquierda de la ventana de SAP)...",
+            "barra_estado": "📊 Coloca el puntero sobre la barra de estado inferior de SAP\n(franja inferior donde aparecen los mensajes en rojo o verde)...",
+            "menu_copiar_error": "📋 Haz clic DERECHO manual en la barra de estado y coloca el puntero\nsobre la opción 'Copiar' / 'Copiar mensaje de error' del menú emergente...",
+            "tab_general": "📑 Coloca el puntero sobre la pestaña 'General'\n(en la fila de pestañas al centro de la ventana)...",
+            "rtn": "🆔 Coloca el puntero sobre la casilla 'RTN'\n(en la cabecera de datos maestros del socio de negocios)...",
+            "telefono": "📞 Coloca el puntero sobre la casilla 'Teléfono 1'\n(dentro de la pestaña General)...",
+            "movil": "📱 Coloca el puntero sobre la casilla 'Teléfono Móvil'\n(dentro de la pestaña General)...",
+            "correo": "✉️ Coloca el puntero sobre la casilla 'Correo Electrónico'\n(dentro de la pestaña General)...",
+            "activo": "🔘 Coloca el puntero sobre la opción / radio button 'Activo'\n(en la parte inferior de la pestaña General)...",
+            "wbcustid": "🏷️ Coloca el puntero sobre la casilla 'WBCUSTID'\n(en el panel lateral derecho de Campos de Usuario UDF)...",
+            "syncflag": "🚩 Coloca el puntero sobre la casilla 'SyncFlag'\n(en el panel lateral derecho de Campos de Usuario UDF)...",
+            "tab_direcciones": "📍 Coloca el puntero sobre la pestaña 'Direcciones'\n(en la fila de pestañas al centro de la ventana)...",
+            "definir_nuevo_factura": "📄 Coloca el puntero sobre 'Definir nuevo'\n(o la fila bajo 'Destinatario de factura' en el árbol izquierdo de direcciones)...",
+            "id_direccion": "📍 Coloca el puntero sobre la casilla 'ID de dirección'\n(en el formulario derecho de la pestaña Direcciones)...",
+            "calle_numero": "🏠 Coloca el puntero sobre la casilla 'Calle/ Número'\n(en el formulario derecho de la pestaña Direcciones)...",
+            "ciudad": "🏙️ Coloca el puntero sobre la casilla 'Ciudad'\n(en el formulario derecho de la pestaña Direcciones)...",
+            "btn_copiar_direccion": "⏩ Coloca el puntero sobre el botón 'Copiar >>'\n(botón central para clonar la dirección a Destino)...",
+            "indicador_impuestos": "🏷️ Coloca el puntero sobre la casilla 'Indicador de impuestos'\n(en el formulario derecho tras copiar a Destino)...",
+        }
+        hint = hints.get(target_point, f"Coloca el puntero del mouse exactamente sobre:\n'{label_name}' en tu SAP...")
 
         lbl_info = ttk.Label(
             calib_win,
@@ -801,43 +839,71 @@ class BotClientesApp:
 
         calib_win.after(1000, countdown_step, 4)
 
-    def start_wizard_calibration(self):
-        # Determinar qué puntos están activos
-        active_points = [
-            "btn_buscar", "btn_crear", "btn_confirmar_crear", "card_code",
-            "btn_actualizar", "barra_estado", "menu_copiar_error"
-        ]
+    def start_wizard_calibration(self, subset: Optional[str] = None):
         flags = self.engine.update_flags
 
-        if any(flags.get(k) for k in ["rtn", "telefono", "movil", "correo", "activo"]):
-            active_points.append("tab_general")
-            if flags.get("rtn"): active_points.append("rtn")
-            if flags.get("telefono"): active_points.append("telefono")
-            if flags.get("movil"): active_points.append("movil")
-            if flags.get("correo"): active_points.append("correo")
-            if flags.get("activo"): active_points.append("activo")
-
-        if flags.get("wbcustid"): active_points.append("wbcustid")
-        if flags.get("syncflag"): active_points.append("syncflag")
-
-        if any(flags.get(k) for k in ["id_direccion", "calle_numero", "ciudad", "indicador_impuestos"]):
-            active_points.append("tab_direcciones")
-            active_points.append("definir_nuevo_factura")
-            if flags.get("id_direccion"): active_points.append("id_direccion")
-            if flags.get("calle_numero"): active_points.append("calle_numero")
-            if flags.get("ciudad"): active_points.append("ciudad")
+        if subset == "navegacion":
+            active_points = [
+                "btn_buscar", "btn_crear", "btn_confirmar_crear", "card_code",
+                "btn_actualizar", "barra_estado", "menu_copiar_error",
+                "tab_general", "tab_direcciones"
+            ]
+            wizard_name = "Navegación y Control (9 puntos)"
+        elif subset == "general":
+            active_points = ["tab_general"]
+            if flags.get("rtn", True): active_points.append("rtn")
+            if flags.get("telefono", True): active_points.append("telefono")
+            if flags.get("movil", True): active_points.append("movil")
+            if flags.get("correo", True): active_points.append("correo")
+            if flags.get("activo", True): active_points.append("activo")
+            if flags.get("wbcustid", True): active_points.append("wbcustid")
+            if flags.get("syncflag", True): active_points.append("syncflag")
+            wizard_name = f"Cabecera, General y UDF ({len(active_points)} puntos)"
+        elif subset == "direcciones":
+            active_points = ["tab_direcciones", "definir_nuevo_factura"]
+            if flags.get("id_direccion", True): active_points.append("id_direccion")
+            if flags.get("calle_numero", True): active_points.append("calle_numero")
+            if flags.get("ciudad", True): active_points.append("ciudad")
             active_points.append("btn_copiar_direccion")
-            if flags.get("indicador_impuestos"): active_points.append("indicador_impuestos")
+            if flags.get("indicador_impuestos", True): active_points.append("indicador_impuestos")
+            wizard_name = f"Pestaña Direcciones ({len(active_points)} puntos)"
+        else:
+            wizard_name = "Todos los Puntos Activos"
+            active_points = [
+                "btn_buscar", "btn_crear", "btn_confirmar_crear", "card_code",
+                "btn_actualizar", "barra_estado", "menu_copiar_error"
+            ]
+            if any(flags.get(k) for k in ["rtn", "telefono", "movil", "correo", "activo"]):
+                active_points.append("tab_general")
+                if flags.get("rtn"): active_points.append("rtn")
+                if flags.get("telefono"): active_points.append("telefono")
+                if flags.get("movil"): active_points.append("movil")
+                if flags.get("correo"): active_points.append("correo")
+                if flags.get("activo"): active_points.append("activo")
+
+            if flags.get("wbcustid"): active_points.append("wbcustid")
+            if flags.get("syncflag"): active_points.append("syncflag")
+
+            if any(flags.get(k) for k in ["id_direccion", "calle_numero", "ciudad", "indicador_impuestos"]):
+                active_points.append("tab_direcciones")
+                active_points.append("definir_nuevo_factura")
+                if flags.get("id_direccion"): active_points.append("id_direccion")
+                if flags.get("calle_numero"): active_points.append("calle_numero")
+                if flags.get("ciudad"): active_points.append("ciudad")
+                active_points.append("btn_copiar_direccion")
+                if flags.get("indicador_impuestos"): active_points.append("indicador_impuestos")
 
         def run_step(step_idx):
             if step_idx < len(active_points):
                 self.start_calibration(active_points[step_idx], on_complete=lambda: run_step(step_idx + 1))
             else:
-                messagebox.showinfo("Asistente Completo", "¡Todos los puntos activos fueron calibrados y guardados con éxito!")
+                messagebox.showinfo("Asistente Completo", f"¡Todos los puntos de {wizard_name} fueron calibrados y guardados con éxito!")
 
         confirm = messagebox.askyesno(
-            "Asistente Rápido",
-            f"El asistente te guiará para calibrar {len(active_points)} puntos activos en secuencia (5 seg por punto).\n¿Deseas iniciar?"
+            f"Asistente: {wizard_name}",
+            f"El asistente te guiará para calibrar {len(active_points)} puntos en secuencia (5 seg por punto).\n\n"
+            f"Coloca el cursor en tu SAP de la segunda pantalla según las instrucciones en cada paso.\n\n"
+            f"¿Deseas iniciar ahora?"
         )
         if confirm:
             run_step(0)

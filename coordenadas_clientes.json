@@ -19,66 +19,27 @@
         2000,
         951
     ],
-    "barra_estado_coord": null,
-    "menu_copiar_error_coord": null,
-    "tab_general_coord": [
-        1997,
-        143
+    "barra_estado_coord": [
+        1982,
+        955
     ],
-    "tab_direcciones_coord": [
-        2444,
-        144
+    "menu_copiar_error_coord": [
+        2059,
+        931
     ],
-    "rtn_coord": [
-        2113,
-        89
-    ],
-    "telefono_coord": [
-        2135,
-        167
-    ],
-    "movil_coord": [
-        2096,
-        196
-    ],
-    "correo_coord": [
-        2095,
-        224
-    ],
-    "activo_coord": [
-        1951,
-        835
-    ],
-    "wbcustid_coord": [
-        3870,
-        875
-    ],
-    "syncflag_coord": [
-        3852,
-        903
-    ],
-    "definir_nuevo_factura_coord": [
-        2115,
-        195
-    ],
-    "id_direccion_coord": [
-        3407,
-        191
-    ],
-    "calle_numero_coord": [
-        3481,
-        238
-    ],
-    "ciudad_coord": [
-        3426,
-        279
-    ],
-    "btn_copiar_direccion_coord": [
-        3240,
-        727
-    ],
-    "indicador_impuestos_coord": [
-        3416,
-        355
-    ]
+    "tab_general_coord": null,
+    "tab_direcciones_coord": null,
+    "rtn_coord": null,
+    "telefono_coord": null,
+    "movil_coord": null,
+    "correo_coord": null,
+    "activo_coord": null,
+    "wbcustid_coord": null,
+    "syncflag_coord": null,
+    "definir_nuevo_factura_coord": null,
+    "id_direccion_coord": null,
+    "calle_numero_coord": null,
+    "ciudad_coord": null,
+    "btn_copiar_direccion_coord": null,
+    "indicador_impuestos_coord": null
 }
