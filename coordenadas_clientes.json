@@ -19,6 +19,8 @@
         2000,
         951
     ],
+    "barra_estado_coord": null,
+    "menu_copiar_error_coord": null,
     "tab_general_coord": [
         1997,
         143
@@ -55,7 +57,10 @@
         3852,
         903
     ],
-    "definir_nuevo_factura_coord": null,
+    "definir_nuevo_factura_coord": [
+        2115,
+        195
+    ],
     "id_direccion_coord": [
         3407,
         191
@@ -68,7 +73,10 @@
         3426,
         279
     ],
-    "btn_copiar_direccion_coord": null,
+    "btn_copiar_direccion_coord": [
+        3240,
+        727
+    ],
     "indicador_impuestos_coord": [
         3416,
         355

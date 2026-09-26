@@ -67,6 +67,8 @@ class BotEngine:
             "btn_confirmar_crear_coord": None,        # Botón confirmar 'Crear nuevo' / Descartar
             "card_code_coord": (2261, 36),            # Campo "Código" de Socio de Negocios
             "btn_actualizar_coord": (2000, 951),       # Botón inferior izquierdo ("Buscar" / "Actualizar")
+            "barra_estado_coord": None,               # Barra de estado inferior de SAP (clic derecho)
+            "menu_copiar_error_coord": None,          # Opción 'Copiar' en menú contextual (clic izquierdo)
             "tab_general_coord": None,                 # Pestaña "General"
             "tab_direcciones_coord": None,             # Pestaña "Direcciones"
 
@@ -135,6 +137,8 @@ class BotEngine:
                 "btn_confirmar_crear_coord": self.config.get("btn_confirmar_crear_coord"),
                 "card_code_coord": self.config.get("card_code_coord"),
                 "btn_actualizar_coord": self.config.get("btn_actualizar_coord"),
+                "barra_estado_coord": self.config.get("barra_estado_coord"),
+                "menu_copiar_error_coord": self.config.get("menu_copiar_error_coord"),
                 "tab_general_coord": self.config.get("tab_general_coord"),
                 "tab_direcciones_coord": self.config.get("tab_direcciones_coord"),
                 "rtn_coord": self.config.get("rtn_coord"),
@@ -342,6 +346,54 @@ class BotEngine:
             win32api.mouse_event(win32con.MOUSEEVENTF_LEFTUP, 0, 0, 0, 0)
             if clicks > 1:
                 time.sleep(0.08)
+
+    def _safe_right_click(self, coord: Optional[Tuple[int, int]]):
+        """Ejecuta un clic derecho virtual preciso en Windows."""
+        if not coord:
+            return
+        x, y = int(coord[0]), int(coord[1])
+        win32api.SetCursorPos((x, y))
+        time.sleep(0.08)
+        win32api.mouse_event(win32con.MOUSEEVENTF_RIGHTDOWN, 0, 0, 0, 0)
+        time.sleep(0.05)
+        win32api.mouse_event(win32con.MOUSEEVENTF_RIGHTUP, 0, 0, 0, 0)
+        time.sleep(0.05)
+
+    def _copy_status_bar_message(self) -> str:
+        """
+        Copia el mensaje de la barra de estado de SAP Business One:
+        1. Clic derecho en la barra de estado.
+        2. Clic izquierdo en la opción 'Copiar' del menú contextual.
+        3. Retorna el texto del portapapeles.
+        """
+        barra_coord = self.config.get("barra_estado_coord")
+        menu_coord = self.config.get("menu_copiar_error_coord")
+
+        if not barra_coord:
+            return ""
+
+        try:
+            # Limpiar portapapeles para evitar lecturas de valores anteriores
+            pyperclip.copy("")
+            time.sleep(0.05)
+
+            # 1. Clic derecho en la barra de estado
+            self._safe_right_click(barra_coord)
+            time.sleep(0.25)
+
+            # 2. Clic izquierdo en la opción Copiar
+            if menu_coord:
+                self._safe_click(menu_coord)
+                time.sleep(0.15)
+            else:
+                # Si no calibró la opción exacta, presionar 'C' o Enter en el menú contextual
+                self._press_key(ord('C'))
+                time.sleep(0.15)
+
+            msg = pyperclip.paste().strip()
+            return msg
+        except Exception:
+            return ""
 
     def _safe_paste(self, text: str):
         """Copia texto al portapapeles y ejecuta Ctrl+V mediante Win32 puro para evitar pérdidas de foco en RDP."""
@@ -782,14 +834,44 @@ class BotEngine:
         time.sleep(self.config.get("delay_after_save", 0.85))
 
         # ========================================================
-        # PASO 6: Verificación de Error al Actualizar
+        # PASO 6: Captura del Mensaje de SAP (Clic derecho ➔ Copiar)
         # ========================================================
+        sap_msg = ""
+        if self.config.get("barra_estado_coord"):
+            sap_msg = self._copy_status_bar_message()
+
+        # Si no capturó texto en la barra, verificar si hay un popup modal de SAP
         popup = self._detect_sap_popup()
         if popup:
             _, popup_text = popup
-            if self.config.get("auto_recover_on_error", True):
-                self._recover_and_reset_to_search()
-            raise Exception(f"SAP rechazó la actualización ({popup_text}). Pantalla restablecida limpiamente.")
+            if not sap_msg:
+                sap_msg = popup_text
+            self._press_key(win32con.VK_ESCAPE)
+            time.sleep(0.15)
+            self._press_enter()
+            time.sleep(0.15)
+
+        # ========================================================
+        # PASO 7: Transición y Limpieza Universal (Nuevo ➔ OK ➔ Buscar)
+        # ========================================================
+        # Se guarde o no, se ejecuta Nuevo ➔ OK ➔ Buscar para dejar la pantalla
+        # 100% lista en Modo Buscar para el siguiente socio de negocio.
+        self._recover_and_reset_to_search()
+
+        # ========================================================
+        # PASO 8: Clasificación de Resultado
+        # ========================================================
+        msg_lower = sap_msg.lower() if sap_msg else ""
+        is_success = any(w in msg_lower for w in ["éxito", "exito", "correcta", "finalizada con éxito", "actualizad"])
+        is_error = any(w in msg_lower for w in ["error", "no se puede", "obligatorio", "ya existe", "inválido", "invalido", "rechaz", "falló", "fallo", "bloqueado"])
+
+        # Si detectamos error o vino popup
+        if popup or is_error or (sap_msg and not is_success and len(sap_msg) > 6):
+            err_desc = sap_msg or (popup[1] if popup else "Error al guardar en SAP Business One")
+            raise Exception(f"{err_desc}")
+
+        if sap_msg:
+            actualizados.append(f"SAP='{sap_msg}'")
 
         return actualizados
 

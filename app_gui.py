@@ -295,6 +295,8 @@ class BotClientesApp:
             "btn_confirmar_crear": tk.StringVar(value="No calibrado"),
             "card_code": tk.StringVar(value="No calibrado"),
             "btn_actualizar": tk.StringVar(value="No calibrado"),
+            "barra_estado": tk.StringVar(value="No calibrado"),
+            "menu_copiar_error": tk.StringVar(value="No calibrado"),
             "tab_general": tk.StringVar(value="No calibrado"),
             "tab_direcciones": tk.StringVar(value="No calibrado"),
             "rtn": tk.StringVar(value="No calibrado"),
@@ -342,6 +344,8 @@ class BotClientesApp:
             "btn_confirmar_crear": "btn_confirmar_crear_coord",
             "card_code": "card_code_coord",
             "btn_actualizar": "btn_actualizar_coord",
+            "barra_estado": "barra_estado_coord",
+            "menu_copiar_error": "menu_copiar_error_coord",
             "tab_general": "tab_general_coord",
             "tab_direcciones": "tab_direcciones_coord",
             "rtn": "rtn_coord",
@@ -479,8 +483,9 @@ class BotClientesApp:
 
         self._build_calib_row(tab_nav, "btn_buscar", "🔍 1. Botón 'Buscar' (Lupa barra SAP)", "btn_crear", "➕ 2. Botón 'Crear' (Añadir barra - recuperación)")
         self._build_calib_row(tab_nav, "btn_confirmar_crear", "✅ 3. Confirmar 'Crear nuevo' (Diálogo)", "card_code", "📝 4. Campo 'Código' (Cabecera SN)")
-        self._build_calib_row(tab_nav, "btn_actualizar", "💾 5. Botón 'Buscar / Actualizar' (inferior)", "tab_general", "📑 6. Pestaña 'General'")
-        self._build_calib_row(tab_nav, "tab_direcciones", "📑 7. Pestaña 'Direcciones'", None, None)
+        self._build_calib_row(tab_nav, "btn_actualizar", "💾 5. Botón 'Buscar / Actualizar' (inferior)", "barra_estado", "📊 6. Barra de Estado (Clic derecho)")
+        self._build_calib_row(tab_nav, "menu_copiar_error", "📋 7. Opción 'Copiar' (Menú clic derecho)", "tab_general", "📑 8. Pestaña 'General'")
+        self._build_calib_row(tab_nav, "tab_direcciones", "📑 9. Pestaña 'Direcciones'", None, None)
 
         # Pestaña B: Cabecera y General
         tab_gen = ttk.Frame(nb_calib, padding="6")
@@ -753,9 +758,18 @@ class BotClientesApp:
         calib_win.attributes("-topmost", True)
         calib_win.resizable(False, False)
 
+        if target_point == "barra_estado":
+            hint = "Coloca el puntero del mouse sobre la barra de estado inferior de SAP\n(donde aparecen los mensajes en rojo o verde)..."
+        elif target_point == "menu_copiar_error":
+            hint = "Haz clic DERECHO en la barra de estado y coloca el puntero\nsobre la opción 'Copiar' / 'Copiar mensaje de error' del menú..."
+        elif target_point == "btn_confirmar_crear":
+            hint = "Coloca el puntero sobre el botón 'Sí' / 'OK' del cuadro de diálogo\nque aparece al cambiar de registro o descartar cambios..."
+        else:
+            hint = f"Coloca el puntero del mouse exactamente sobre:\n'{label_name}' en tu SAP..."
+
         lbl_info = ttk.Label(
             calib_win,
-            text=f"Coloca el puntero del mouse exactamente sobre:\n'{label_name}' en tu SAP...",
+            text=hint,
             font=("Segoe UI", 10),
             justify=tk.CENTER,
             padding=10,
@@ -789,7 +803,10 @@ class BotClientesApp:
 
     def start_wizard_calibration(self):
         # Determinar qué puntos están activos
-        active_points = ["btn_buscar", "btn_crear", "card_code", "btn_actualizar"]
+        active_points = [
+            "btn_buscar", "btn_crear", "btn_confirmar_crear", "card_code",
+            "btn_actualizar", "barra_estado", "menu_copiar_error"
+        ]
         flags = self.engine.update_flags
 
         if any(flags.get(k) for k in ["rtn", "telefono", "movil", "correo", "activo"]):
