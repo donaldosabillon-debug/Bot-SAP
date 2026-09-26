@@ -1,11 +1,11 @@
 {
     "btn_buscar_coord": [
-        2241,
-        -60
+        2237,
+        -65
     ],
     "btn_crear_coord": [
-        2274,
-        -70
+        2270,
+        -65
     ],
     "btn_confirmar_crear_coord": [
         2200,
@@ -13,78 +13,78 @@
     ],
     "card_code_coord": [
         2135,
-        16
+        12
     ],
     "btn_actualizar_coord": [
-        1977,
-        905
+        1965,
+        970
     ],
     "barra_estado_coord": [
-        2070,
-        938
+        2420,
+        1015
     ],
     "menu_copiar_error_coord": [
-        2110,
-        915
+        2450,
+        990
     ],
     "tab_general_coord": [
-        2055,
-        140
+        2110,
+        142
     ],
     "tab_direcciones_coord": [
-        2415,
-        140
+        2350,
+        142
     ],
     "rtn_coord": [
-        2134,
-        90
+        2109,
+        85
     ],
     "telefono_coord": [
-        2092,
-        166
+        2110,
+        160
     ],
     "movil_coord": [
-        2101,
-        197
+        2110,
+        198
     ],
     "correo_coord": [
-        2118,
-        226
+        2110,
+        235
     ],
     "activo_coord": [
-        1951,
-        817
+        1945,
+        915
     ],
     "wbcustid_coord": [
-        3849,
-        873
+        3865,
+        945
     ],
     "syncflag_coord": [
-        3829,
-        906
+        3865,
+        977
     ],
     "definir_nuevo_factura_coord": [
         1990,
-        224
+        289
     ],
     "id_direccion_coord": [
         3460,
-        204
+        269
     ],
     "calle_numero_coord": [
         3460,
-        260
+        325
     ],
     "ciudad_coord": [
         3460,
-        289
+        354
     ],
     "btn_copiar_direccion_coord": [
         3520,
-        909
+        974
     ],
     "indicador_impuestos_coord": [
         3460,
-        369
+        434
     ]
 }

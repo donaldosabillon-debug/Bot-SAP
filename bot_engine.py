@@ -70,32 +70,32 @@ class BotEngine:
 
             # Coordenadas calibradas (X, Y)
             # 1. Navegación y Control
-            "btn_buscar_coord": (2228, -63),          # Lupa / Binoculares en barra de herramientas de SAP
-            "btn_crear_coord": (2266, -63),           # Botón Crear / Añadir en barra de SAP (recuperación)
+            "btn_buscar_coord": (2237, -65),          # Lupa / Binoculares en barra de herramientas de SAP
+            "btn_crear_coord": (2270, -65),           # Botón Crear / Añadir en barra de SAP (recuperación)
             "btn_confirmar_crear_coord": (2200, 80),   # Botón confirmar 'Crear nuevo' / Descartar
-            "card_code_coord": (2135, 16),            # Campo "Código" de Socio de Negocios
-            "btn_actualizar_coord": (1977, 905),       # Botón inferior izquierdo ("Buscar" / "Actualizar")
-            "barra_estado_coord": (2070, 938),         # Barra de estado inferior de SAP (clic derecho)
-            "menu_copiar_error_coord": (2110, 915),    # Opción 'Copiar' en menú contextual (clic izquierdo)
-            "tab_general_coord": (2055, 140),          # Pestaña "General"
-            "tab_direcciones_coord": (2415, 140),      # Pestaña "Direcciones"
+            "card_code_coord": (2135, 12),            # Campo "Código" de Socio de Negocios
+            "btn_actualizar_coord": (1965, 970),       # Botón inferior izquierdo ("Buscar" / "Actualizar")
+            "barra_estado_coord": (2420, 1015),        # Barra de estado inferior de SAP (clic derecho)
+            "menu_copiar_error_coord": (2450, 990),    # Opción 'Copiar' en menú contextual (clic izquierdo)
+            "tab_general_coord": (2110, 142),          # Pestaña "General"
+            "tab_direcciones_coord": (2350, 142),      # Pestaña "Direcciones"
 
             # 2. Cabecera y Pestaña General
-            "rtn_coord": (2135, 86),                  # Campo "RTN" en la cabecera
-            "telefono_coord": (2135, 162),            # Campo "Teléfono 1" en pestaña General
-            "movil_coord": (2135, 192),               # Campo "Teléfono móvil" en pestaña General
-            "correo_coord": (2135, 222),              # Campo "Correo electrónico" en pestaña General
-            "activo_coord": (1951, 817),              # Radio button "Activo" en pestaña General
-            "wbcustid_coord": (3870, 878),            # Campo "WBCUSTID" en panel UDF
-            "syncflag_coord": (3870, 928),            # Campo "SyncFlag" en panel UDF
+            "rtn_coord": (2109, 85),                  # Campo "RTN" en la cabecera
+            "telefono_coord": (2110, 160),            # Campo "Teléfono 1" en pestaña General
+            "movil_coord": (2110, 198),               # Campo "Teléfono móvil" en pestaña General
+            "correo_coord": (2110, 235),              # Campo "Correo electrónico" en pestaña General
+            "activo_coord": (1945, 915),              # Radio button "Activo" en pestaña General
+            "wbcustid_coord": (3865, 945),            # Campo "WBCUSTID" en panel UDF
+            "syncflag_coord": (3865, 977),            # Campo "SyncFlag" en panel UDF
 
             # 3. Pestaña Direcciones
-            "definir_nuevo_factura_coord": (1990, 224), # Opción 'Definir nuevo' bajo Destinatario de factura
-            "id_direccion_coord": (3460, 204),          # Campo "ID de dirección"
-            "calle_numero_coord": (3460, 260),          # Campo "Calle/ Número"
-            "ciudad_coord": (3460, 289),                # Campo "Ciudad"
-            "btn_copiar_direccion_coord": (3520, 909),  # Botón copiar (>>) a Destino
-            "indicador_impuestos_coord": (3460, 369),   # Campo "Indicador de impuestos" (en Destino)
+            "definir_nuevo_factura_coord": (1990, 289), # Opción 'Definir nuevo' bajo Destinatario de factura
+            "id_direccion_coord": (3460, 269),          # Campo "ID de dirección"
+            "calle_numero_coord": (3460, 325),          # Campo "Calle/ Número"
+            "ciudad_coord": (3460, 354),                # Campo "Ciudad"
+            "btn_copiar_direccion_coord": (3520, 974),  # Botón copiar (>>) a Destino
+            "indicador_impuestos_coord": (3460, 434),   # Campo "Indicador de impuestos" (en Destino)
         }
 
         # Cargar coordenadas previas si existen en JSON
