@@ -33,7 +33,7 @@ import pandas as pd
 import win32api
 
 import window_manager
-from bot_engine import BotEngine, SAPWindowNotFoundError
+from bot_engine import BotEngine, SAPWindowNotFoundError, BotCanceledError
 
 
 class ClientColumnMappingDialog(tk.Toplevel):
@@ -268,7 +268,9 @@ class BotClientesApp:
 
         self.engine = BotEngine()
         self.engine.on_pause_callback = self._on_engine_pause_change
-        self.root.bind_all("<Escape>", lambda e: self.toggle_pause())
+        self.root.bind_all("<Escape>", lambda e: self.stop_process())
+        self.root.bind_all("<F12>", lambda e: self.stop_process())
+        self.root.bind_all("<Pause>", lambda e: self.stop_process())
         self.root.bind_all("<F8>", lambda e: self.toggle_pause())
         self.worker_thread = None
         self.calibrating = False
@@ -579,20 +581,20 @@ class BotClientesApp:
 
         self.btn_pause = ttk.Button(
             btn_bar,
-            text="⏸ Pausar (F8 / ESC)",
+            text="⏸ Pausar (F8)",
             command=self.toggle_pause,
             state=tk.DISABLED,
-            width=18,
+            width=16,
         )
         self.btn_pause.pack(side=tk.LEFT, padx=(0, 10))
 
         self.btn_stop = ttk.Button(
             btn_bar,
-            text="⏹ Detener",
+            text="⏹ Detener (ESC / F12)",
             command=self.stop_process,
             state=tk.DISABLED,
             style="ActionStop.TButton",
-            width=14,
+            width=20,
         )
         self.btn_stop.pack(side=tk.LEFT, padx=(0, 10))
 
@@ -976,7 +978,7 @@ class BotClientesApp:
 
         self.btn_test.config(state=tk.DISABLED)
         self.btn_start.config(state=tk.DISABLED)
-        self.btn_pause.config(state=tk.DISABLED)
+        self.btn_pause.config(state=tk.NORMAL, text="⏸ Pausar (F8)")
         self.btn_stop.config(state=tk.NORMAL)
 
         def worker():
@@ -986,6 +988,9 @@ class BotClientesApp:
                     on_countdown_tick=self._on_countdown,
                 )
                 self.root.after(0, lambda: self._on_single_test_complete(result))
+            except BotCanceledError:
+                self.root.after(0, lambda: self.status_bar_var.set("⏹ Prueba cancelada inmediatamente por el usuario."))
+                self.root.after(0, self._reset_controls)
             except Exception as e:
                 self.root.after(0, lambda: messagebox.showerror("Error en Prueba", f"Ocurrió un error:\n{e}"))
                 self.root.after(0, self._reset_controls)
@@ -1036,7 +1041,7 @@ class BotClientesApp:
 
         self.btn_test.config(state=tk.DISABLED)
         self.btn_start.config(state=tk.DISABLED)
-        self.btn_pause.config(state=tk.NORMAL, text="⏸ Pausar (F8 / ESC)")
+        self.btn_pause.config(state=tk.NORMAL, text="⏸ Pausar (F8)")
         self.btn_stop.config(state=tk.NORMAL)
         self.btn_export.config(state=tk.DISABLED)
 
@@ -1052,6 +1057,9 @@ class BotClientesApp:
             )
         except SAPWindowNotFoundError as e:
             self.root.after(0, lambda: messagebox.showerror("Error de Ventana SAP", str(e)))
+            self.root.after(0, self._reset_controls)
+        except BotCanceledError:
+            self.root.after(0, lambda: self.status_bar_var.set("⏹ Proceso cancelado inmediatamente por el usuario."))
             self.root.after(0, self._reset_controls)
         except Exception as e:
             self.root.after(0, lambda: messagebox.showerror("Error en el Proceso", f"Ocurrió un error inesperado:\n{e}"))
@@ -1104,10 +1112,10 @@ class BotClientesApp:
     def _on_engine_pause_change(self, is_paused: bool):
         def update_pause():
             if is_paused:
-                self.btn_pause.config(text="▶ Reanudar (F8 / ESC)")
+                self.btn_pause.config(text="▶ Reanudar (F8)")
                 self.status_bar_var.set("⏸ Bot en PAUSA. Presiona F8 o haz clic en Reanudar.")
             else:
-                self.btn_pause.config(text="⏸ Pausar (F8 / ESC)")
+                self.btn_pause.config(text="⏸ Pausar (F8)")
                 self.status_bar_var.set("▶ Reanudando actualización de clientes...")
         self.root.after(0, update_pause)
 
@@ -1124,12 +1132,12 @@ class BotClientesApp:
     def stop_process(self):
         if self.engine.is_running:
             self.engine.stop()
-            self.status_bar_var.set("Deteniendo proceso de actualización...")
+            self.status_bar_var.set("⏹ Proceso detenido de inmediato por el usuario.")
 
     def _reset_controls(self):
         self.btn_test.config(state=tk.NORMAL)
         self.btn_start.config(state=tk.NORMAL)
-        self.btn_pause.config(state=tk.DISABLED, text="⏸ Pausar (F8 / ESC)")
+        self.btn_pause.config(state=tk.DISABLED, text="⏸ Pausar (F8)")
         self.btn_stop.config(state=tk.DISABLED)
 
     def export_results(self):

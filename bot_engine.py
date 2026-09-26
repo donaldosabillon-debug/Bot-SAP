@@ -40,6 +40,11 @@ class SAPWindowNotFoundError(Exception):
     pass
 
 
+class BotCanceledError(Exception):
+    """Excepción lanzada cuando el usuario cancela o detiene la automatización de forma inmediata."""
+    pass
+
+
 class BotEngine:
     CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "coordenadas_clientes.json")
 
@@ -48,6 +53,9 @@ class BotEngine:
         self._pause_event = threading.Event()
         self._pause_event.set()
         self.is_running = False
+        self._last_bot_cursor_pos: Optional[Tuple[int, int]] = None
+        self._sending_synthetic_key = False
+        self.on_pause_callback: Optional[Callable[[bool], None]] = None
 
         # Configuración de tiempos y coordenadas
         self.config = {
@@ -333,30 +341,86 @@ class BotEngine:
 
         return s
 
+    def _check_interruption(self):
+        """
+        Verifica inmediatamente si el usuario canceló, detuvo o pausó el bot.
+        Lanza BotCanceledError para abortar la ejecución en el acto (en menos de 10ms).
+        """
+        if self._stop_event.is_set() or not self.is_running:
+            raise BotCanceledError("Proceso cancelado o detenido por el usuario.")
+
+        while not self._pause_event.is_set():
+            time.sleep(0.08)
+            if self._stop_event.is_set() or not self.is_running:
+                raise BotCanceledError("Proceso cancelado o detenido por el usuario.")
+
+    def _check_mouse_failsafe(self):
+        """
+        Mecanismo fail-safe anti-lucha de cursor en entorno multi-monitor / Escritorio Remoto:
+        1. Esquina superior izquierda de pantalla principal (x <= 15, y <= 15): Detención inmediata.
+        2. Detección de intervención humana: si el usuario mueve físicamente el ratón lejos
+           de donde el bot lo posicionó (distancia > 80px), el bot cede el control y se detiene
+           de inmediato para no forcejear el puntero ni provocar clics erráticos en RDP.
+        """
+        curr_x, curr_y = win32api.GetCursorPos()
+
+        # A) Corner fail-safe
+        if curr_x <= 15 and curr_y <= 15:
+            self.stop()
+            raise BotCanceledError("Aborto de emergencia: cursor llevado a la esquina de pantalla.")
+
+        # B) Detección de movimiento intencional del usuario
+        if self._last_bot_cursor_pos is not None:
+            bx, by = self._last_bot_cursor_pos
+            dist = ((curr_x - bx) ** 2 + (curr_y - by) ** 2) ** 0.5
+            if dist > 80:
+                self.stop()
+                raise BotCanceledError("Intervención del usuario detectada (movimiento de mouse). Bot detenido de inmediato para evitar clics erráticos.")
+
+    def _check_pause(self):
+        """Compatibilidad: invoca verificación de interrupción y pausa inmediata."""
+        self._check_interruption()
+
     def _safe_click(self, coord: Optional[Tuple[int, int]], clicks: int = 1):
         """Ejecuta clics virtuales precisos en Windows sin importar monitor ni posición negativa."""
+        self._check_interruption()
         if not coord:
             return
         x, y = int(coord[0]), int(coord[1])
+
+        # Verificar si el usuario intervino con el mouse antes de moverlo
+        self._check_mouse_failsafe()
+
         win32api.SetCursorPos((x, y))
-        time.sleep(0.08)
+        self._last_bot_cursor_pos = (x, y)
+        time.sleep(0.06)
+
+        self._check_interruption()
         for _ in range(clicks):
             win32api.mouse_event(win32con.MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0)
-            time.sleep(0.05)
+            time.sleep(0.04)
             win32api.mouse_event(win32con.MOUSEEVENTF_LEFTUP, 0, 0, 0, 0)
             if clicks > 1:
-                time.sleep(0.08)
+                time.sleep(0.06)
+        self._check_interruption()
 
     def _safe_right_click(self, coord: Optional[Tuple[int, int]]):
         """Ejecuta un clic derecho virtual preciso en Windows."""
+        self._check_interruption()
         if not coord:
             return
         x, y = int(coord[0]), int(coord[1])
+
+        self._check_mouse_failsafe()
         win32api.SetCursorPos((x, y))
-        time.sleep(0.08)
+        self._last_bot_cursor_pos = (x, y)
+        time.sleep(0.06)
+
+        self._check_interruption()
         win32api.mouse_event(win32con.MOUSEEVENTF_RIGHTDOWN, 0, 0, 0, 0)
-        time.sleep(0.05)
+        time.sleep(0.04)
         win32api.mouse_event(win32con.MOUSEEVENTF_RIGHTUP, 0, 0, 0, 0)
+        self._check_interruption()
         time.sleep(0.05)
 
     def _copy_status_bar_message(self) -> str:
@@ -397,10 +461,12 @@ class BotEngine:
 
     def _safe_paste(self, text: str):
         """Copia texto al portapapeles y ejecuta Ctrl+V mediante Win32 puro para evitar pérdidas de foco en RDP."""
+        self._check_interruption()
         if text is None:
             return
         pyperclip.copy(str(text))
         time.sleep(0.04)
+        self._check_interruption()
         sc_ctrl = win32api.MapVirtualKey(win32con.VK_CONTROL, 0)
         sc_v = win32api.MapVirtualKey(ord('V'), 0)
         win32api.keybd_event(win32con.VK_CONTROL, sc_ctrl, 0, 0)
@@ -411,6 +477,7 @@ class BotEngine:
         time.sleep(0.02)
         win32api.keybd_event(win32con.VK_CONTROL, sc_ctrl, win32con.KEYEVENTF_KEYUP, 0)
         time.sleep(0.05)
+        self._check_interruption()
 
     def _select_all_in_field(self):
         """
@@ -444,43 +511,58 @@ class BotEngine:
     def _write_field_value(self, coord: Optional[Tuple[int, int]], val: str, field_name: str = ""):
         """
         Escribe un valor en un campo de SAP Business One de forma 100% limpia y atómica:
-        1. Doble clic al campo para posicionarse y activar foco.
+        1. Clic simple (clicks=1) al campo para posicionarse y activar foco.
+           IMPORTANTE: Nunca dar doble clic (clicks=2) porque en SAP B1 abre una ventana
+           emergente de edición de texto ('Texto de campo' / 'Descripción detallada').
         2. Selecciona todo el contenido existente con END + Shift+HOME.
         3. Pega el valor nuevo reemplazando la selección con Ctrl+V.
         """
+        self._check_interruption()
         if not coord or val is None or str(val).strip() == "":
             return
 
-        # 1. Clic directo al campo
-        self._safe_click(coord, clicks=2)
+        # 1. Clic simple directo al campo (1 solo clic para evitar popups de texto en SAP)
+        self._safe_click(coord, clicks=1)
         time.sleep(0.10)
+        self._check_interruption()
 
         # 2. Resaltar todo el texto existente
         self._select_all_in_field()
         time.sleep(0.04)
+        self._check_interruption()
 
         # 3. Pegar el nuevo valor limpio sobre la selección
         self._safe_paste(str(val).strip())
         time.sleep(0.08)
+        self._check_interruption()
 
     def _press_enter(self):
         """Presiona ENTER de forma robusta con Win32 y tiempo de retención para RDP."""
+        self._check_interruption()
         sc = win32api.MapVirtualKey(win32con.VK_RETURN, 0)
         win32api.keybd_event(win32con.VK_RETURN, sc, 0, 0)
         time.sleep(0.08)
         win32api.keybd_event(win32con.VK_RETURN, sc, win32con.KEYEVENTF_KEYUP, 0)
         time.sleep(0.04)
+        self._check_interruption()
 
     def _press_key(self, vk: int):
         """Envía una pulsación de tecla virtual limpia."""
-        sc = win32api.MapVirtualKey(vk, 0)
-        win32api.keybd_event(vk, sc, 0, 0)
-        time.sleep(0.04)
-        win32api.keybd_event(vk, sc, win32con.KEYEVENTF_KEYUP, 0)
-        time.sleep(0.03)
+        self._check_interruption()
+        self._sending_synthetic_key = True
+        try:
+            sc = win32api.MapVirtualKey(vk, 0)
+            win32api.keybd_event(vk, sc, 0, 0)
+            time.sleep(0.04)
+            win32api.keybd_event(vk, sc, win32con.KEYEVENTF_KEYUP, 0)
+            time.sleep(0.03)
+        finally:
+            self._sending_synthetic_key = False
+        self._check_interruption()
 
     def _press_ctrl_f(self):
         """Presiona Ctrl+F para entrar a Modo Buscar en SAP B1."""
+        self._check_interruption()
         sc_ctrl = win32api.MapVirtualKey(win32con.VK_CONTROL, 0)
         sc_f = win32api.MapVirtualKey(ord('F'), 0)
         win32api.keybd_event(win32con.VK_CONTROL, sc_ctrl, 0, 0)
@@ -490,9 +572,11 @@ class BotEngine:
         win32api.keybd_event(ord('F'), sc_f, win32con.KEYEVENTF_KEYUP, 0)
         time.sleep(0.02)
         win32api.keybd_event(win32con.VK_CONTROL, sc_ctrl, win32con.KEYEVENTF_KEYUP, 0)
+        self._check_interruption()
 
     def _press_ctrl_a(self):
         """Presiona Ctrl+A para invocar 'Añadir / Crear nuevo' en SAP B1."""
+        self._check_interruption()
         sc_ctrl = win32api.MapVirtualKey(win32con.VK_CONTROL, 0)
         sc_a = win32api.MapVirtualKey(ord('A'), 0)
         win32api.keybd_event(win32con.VK_CONTROL, sc_ctrl, 0, 0)
@@ -502,9 +586,11 @@ class BotEngine:
         win32api.keybd_event(ord('A'), sc_a, win32con.KEYEVENTF_KEYUP, 0)
         time.sleep(0.02)
         win32api.keybd_event(win32con.VK_CONTROL, sc_ctrl, win32con.KEYEVENTF_KEYUP, 0)
+        self._check_interruption()
 
     def _press_alt_a(self):
         """Presiona Alt+A para Guardar/Actualizar en SAP B1."""
+        self._check_interruption()
         sc_menu = win32api.MapVirtualKey(win32con.VK_MENU, 0)
         sc_a = win32api.MapVirtualKey(ord('A'), 0)
         win32api.keybd_event(win32con.VK_MENU, sc_menu, 0, 0)
@@ -514,29 +600,42 @@ class BotEngine:
         win32api.keybd_event(ord('A'), sc_a, win32con.KEYEVENTF_KEYUP, 0)
         time.sleep(0.02)
         win32api.keybd_event(win32con.VK_MENU, sc_menu, win32con.KEYEVENTF_KEYUP, 0)
+        self._check_interruption()
 
     def _start_esc_listener(self):
-        """Monitorea globalmente F8, Pausa o ESC para pausar/reanudar el bot sin cerrar SAP."""
+        """
+        Monitorea globalmente el teclado para aborto de emergencia o pausa:
+        - ESC, F12 o PAUSE: Aborto y detención inmediata del bot (<10ms).
+        - F8: Alterna entre Pausa y Reanudar.
+        """
         def _esc_loop():
             while self.is_running:
                 try:
-                    f8_pressed = bool(win32api.GetAsyncKeyState(win32con.VK_F8) & 0x8000)
-                    pause_pressed = bool(win32api.GetAsyncKeyState(win32con.VK_PAUSE) & 0x8000)
-                    esc_pressed = bool(win32api.GetAsyncKeyState(win32con.VK_ESCAPE) & 0x8000)
+                    if not self._sending_synthetic_key:
+                        # 1. Teclas de cancelación de emergencia inmediata
+                        esc_pressed = bool(win32api.GetAsyncKeyState(win32con.VK_ESCAPE) & 0x8000)
+                        f12_pressed = bool(win32api.GetAsyncKeyState(win32con.VK_F12) & 0x8000)
+                        pause_pressed = bool(win32api.GetAsyncKeyState(win32con.VK_PAUSE) & 0x8000)
 
-                    if f8_pressed or pause_pressed or esc_pressed:
-                        time.sleep(0.35)
-                        if self.is_paused():
-                            self.resume()
-                            if self.on_pause_callback:
-                                self.on_pause_callback(False)
-                        else:
-                            self.pause()
-                            if self.on_pause_callback:
-                                self.on_pause_callback(True)
+                        if esc_pressed or f12_pressed or pause_pressed:
+                            self.stop()
+                            break
+
+                        # 2. Tecla para alternar pausa/reanudar
+                        f8_pressed = bool(win32api.GetAsyncKeyState(win32con.VK_F8) & 0x8000)
+                        if f8_pressed:
+                            time.sleep(0.30)
+                            if self.is_paused():
+                                self.resume()
+                                if self.on_pause_callback:
+                                    self.on_pause_callback(False)
+                            else:
+                                self.pause()
+                                if self.on_pause_callback:
+                                    self.on_pause_callback(True)
                 except Exception:
                     pass
-                time.sleep(0.05)
+                time.sleep(0.04)
 
         t = threading.Thread(target=_esc_loop, daemon=True)
         t.start()
@@ -682,7 +781,7 @@ class BotEngine:
         # PASO 2: Clic en campo 'Código de Cliente' y buscar
         # ========================================================
         if card_coord:
-            self._safe_click(card_coord, clicks=2)
+            self._safe_click(card_coord, clicks=1)
             time.sleep(0.10)
 
         # Seleccionar texto previo limpiamente (sin Delete para no escribir puntos)
@@ -923,17 +1022,22 @@ class BotEngine:
         # Cuenta regresiva
         countdown = self.config.get("countdown_seconds", 3)
         for sec in range(countdown, 0, -1):
+            self._check_interruption()
             if on_countdown_tick:
                 on_countdown_tick(sec)
             time.sleep(1.0)
+        self._check_interruption()
         if on_countdown_tick:
             on_countdown_tick(0)
 
         window_manager.bring_window_to_front(hwnd)
         time.sleep(0.3)
+        self._check_interruption()
 
-        actualizados = self._process_single_client(row_data)
-        self.is_running = False
+        try:
+            actualizados = self._process_single_client(row_data)
+        finally:
+            self.is_running = False
 
         return {
             "row_idx": row_idx,
@@ -985,18 +1089,18 @@ class BotEngine:
             # 2. Cuenta regresiva para dar foco
             countdown = self.config.get("countdown_seconds", 3)
             for sec in range(countdown, 0, -1):
-                if self._stop_event.is_set():
-                    stats["aborted"] = True
-                    return
+                self._check_interruption()
                 if on_countdown_tick:
                     on_countdown_tick(sec)
                 time.sleep(1.0)
 
+            self._check_interruption()
             if on_countdown_tick:
                 on_countdown_tick(0)
 
             window_manager.bring_window_to_front(hwnd)
             time.sleep(0.3)
+            self._check_interruption()
 
             df = self.dataframe
             mapping = self.column_mapping
@@ -1021,17 +1125,7 @@ class BotEngine:
             stats["total"] = len(valid_rows)
 
             for item_num, (row_idx, row_data) in enumerate(valid_rows, start=1):
-                if self._stop_event.is_set():
-                    stats["aborted"] = True
-                    break
-
-                while not self._pause_event.is_set():
-                    time.sleep(0.2)
-                    if self._stop_event.is_set():
-                        stats["aborted"] = True
-                        break
-                if stats["aborted"]:
-                    break
+                self._check_interruption()
 
                 card_code = row_data["card_code"]
 
@@ -1064,6 +1158,9 @@ class BotEngine:
                             "message": f"Actualizado exitosamente ({detalle_str})",
                         })
 
+                except BotCanceledError:
+                    stats["aborted"] = True
+                    raise
                 except Exception as row_err:
                     stats["processed"] += 1
                     stats["failed"] += 1
@@ -1086,6 +1183,9 @@ class BotEngine:
                             "message": str(row_err),
                         })
 
+        except BotCanceledError:
+            stats["aborted"] = True
+            stats["error_msg"] = "Proceso cancelado inmediatamente por el usuario."
         except Exception as e:
             stats["error_msg"] = str(e)
             stats["aborted"] = True
